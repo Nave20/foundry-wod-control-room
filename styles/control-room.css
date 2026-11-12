@@ -1,0 +1,134 @@
+.salle-de-controle .salle { display: flex; flex-direction: column; gap: 0.6rem; }
+.salle-de-controle .salle-etat { margin: 0; font-weight: bold; }
+.salle-de-controle .salle-etat i { font-size: 0.7rem; vertical-align: 0.1rem; }
+.salle-de-controle .etat-connecte i { color: #3fbf6f; }
+.salle-de-controle .etat-hors_ligne i { color: #d94a4a; }
+.salle-de-controle :is(.etat-inconnu, .etat-sansMj) i { color: #d9a43f; }
+.salle-de-controle .salle-bloque { border: 1px solid #d94a4a; border-radius: 6px; padding: 0.5rem 0.75rem; background: rgb(217 74 74 / 0.08); }
+.salle-de-controle .salle-bloque p { margin: 0 0 0.4rem; }
+.salle-de-controle .salle-unites { width: 100%; border-collapse: collapse; margin: 0; }
+.salle-de-controle .salle-unites :is(th, td) { padding: 0.25rem 0.4rem; text-align: left; }
+.salle-de-controle .salle-unites input[type="number"] { width: 4rem; }
+.salle-de-controle .salle-ajout { display: flex; gap: 0.4rem; }
+.salle-de-controle .salle-ajout input { flex: 1; }
+.salle-ouvrir { margin-top: 0.25rem; }
+.hologramme-paris .window-content { padding: 0; background: #030b12; display: flex; flex-direction: column; }
+.hologramme-paris .holo { display: flex; flex-direction: column; height: 100%; color: #cdeffa; }
+.hologramme-paris .holo-scene { flex: 1; min-height: 0; position: relative; cursor: grab; }
+.hologramme-paris .holo-scene canvas { display: block; }
+.hologramme-paris .holo-unites { display: flex; gap: 6px; flex-wrap: wrap; padding: 6px 8px; border-top: 1px solid #15394a; }
+.hologramme-paris .holo-unite { border: 1px solid #1d4d61; border-radius: 6px; padding: 3px 8px; font-size: 12px; }
+.hologramme-paris .holo-unite.statut-en_mission { border-color: #ffb35c; }
+.hologramme-paris .holo-unite.statut-blessee { border-color: #ff6b6b; }
+.hologramme-paris .holo-etat { margin: 0; padding: 2px 8px 6px; font-size: 11px; color: #7aa6b6; }
+.hologramme-paris .holo-barre { display: flex; gap: 6px; padding: 6px 8px; border-bottom: 1px solid #15394a; }
+.hologramme-paris .holo-barre button { flex: 0 0 auto; width: auto; color: #cdeffa; background: #07151f; border: 1px solid #15394a; font-size: 12px; padding: 2px 10px; }
+.hologramme-paris .holo-barre button.actif { border-color: #37d6ff; color: #fff; }
+.hologramme-paris .holo-scene { overflow: hidden; }
+.hologramme-paris .holo-etiquette { position: absolute; transform: translate(-50%, -100%); pointer-events: none; white-space: nowrap; font-size: 11px; }
+.hologramme-paris .holo-etiquette.monument { color: #fff2c0; text-shadow: 0 0 4px #000; pointer-events: auto; cursor: pointer; }
+.hologramme-paris .holo-etiquette.arrondissement { color: #fff0d0; font-size: 15px; font-weight: bold; letter-spacing: .04em; padding: 1px 7px; border: 1px solid rgb(255 240 208 / .45); border-radius: 10px; background: rgb(3 11 18 / .72); box-shadow: 0 0 8px rgb(255 240 208 / .35); transform: translate(-50%, -50%); }
+
+/* ---------- Hologramme : disposition, habillage salle de contrôle, panneau des unités ---------- */
+.hologramme-paris .holo { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; }
+.hologramme-paris .holo-corps { flex: 1; min-height: 0; display: flex; }
+.hologramme-paris .holo-corps .holo-scene { flex: 1; min-width: 0; }
+.hologramme-paris .holo-hud { position: absolute; inset: 0; pointer-events: none; color: #9fe8ff; font-size: 10px; letter-spacing: .1em; z-index: 1; }
+.hologramme-paris .holo-hud .balayage { position: absolute; inset: 0; background: repeating-linear-gradient(to bottom, rgb(120 220 255 / .035) 0 1px, transparent 1px 3px); }
+.hologramme-paris .holo-hud .vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 55%, rgb(0 0 0 / .55) 100%); }
+.hologramme-paris .holo-hud .coin { position: absolute; width: 26px; height: 26px; border: 0 solid #37d6ff; opacity: .85; }
+.hologramme-paris .holo-hud .c1 { top: 10px; left: 10px; border-width: 2px 0 0 2px; }
+.hologramme-paris .holo-hud .c2 { top: 10px; right: 10px; border-width: 2px 2px 0 0; }
+.hologramme-paris .holo-hud .c3 { bottom: 10px; left: 10px; border-width: 0 0 2px 2px; }
+.hologramme-paris .holo-hud .c4 { bottom: 10px; right: 10px; border-width: 0 2px 2px 0; }
+.hologramme-paris .holo-hud .bandeau { position: absolute; top: 14px; left: 46px; right: 46px; display: flex; justify-content: space-between; font-size: 11px; letter-spacing: .12em; }
+.hologramme-paris .holo-hud .bandeau b { font-weight: 500; color: #e6fbff; }
+.hologramme-paris .holo-hud .sous { color: #5fa9c0; font-size: 10px; margin-top: 3px; }
+.hologramme-paris .holo-hud .chaud { color: #fff0d0; }
+.hologramme-paris .holo-hud .compas { position: absolute; top: 52px; right: 22px; width: 60px; height: 60px; }
+.hologramme-paris .holo-hud .reticule { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; border: 1px solid rgb(159 232 255 / .45); border-radius: 50%; }
+.hologramme-paris .holo-hud .pied { position: absolute; bottom: 14px; left: 46px; right: 46px; display: flex; justify-content: space-between; align-items: flex-end; color: #7fc6da; }
+.hologramme-paris .holo-hud .pastille { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #5fe0a0; margin-right: 6px; animation: holo-pulse 2s infinite; }
+.hologramme-paris .holo-hud .pastille.ko { background: #ff6b6b; animation: none; }
+@keyframes holo-pulse { 50% { opacity: .35; } }
+.hologramme-paris .holo-etiquette { z-index: 2; }
+
+.hologramme-paris .holo-panneau { width: 300px; flex: 0 0 300px; overflow-y: auto; padding: 8px 10px 12px; border-left: 1px solid #15394a; background: #02080d; color: #9fe8ff; }
+.hologramme-paris .pnl-titre { display: flex; align-items: center; gap: 8px; margin: 10px 0 8px; font-size: 11px; letter-spacing: .14em; color: #e6fbff; cursor: pointer; user-select: none; }
+.hologramme-paris .pnl-titre::before { content: ""; width: 8px; height: 8px; background: #28e0ff; clip-path: polygon(0 0, 100% 50%, 0 100%); transition: transform .25s; }
+.hologramme-paris .pnl-titre.ouvert::before { transform: rotate(90deg); }
+.hologramme-paris .pnl-trait { flex: 1; height: 1px; background: linear-gradient(90deg, #28e0ff, transparent); }
+.hologramme-paris .pnl-liste { display: grid; gap: 10px; }
+.hologramme-paris .pnl-vide { color: #5a7f8c; font-size: 11px; }
+.hologramme-paris .pnl-carte { --c: #28e0ff; --forme: polygon(14px 0, calc(100% - 22px) 0, 100% 22px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 14px);
+  position: relative; padding: 1px; background: var(--c); clip-path: var(--forme); }
+.hologramme-paris .pnl-carte.mission { --c: #ffb35c; }
+.hologramme-paris .pnl-carte.blessee { --c: #ff6b6b; }
+.hologramme-paris .pnl-carte.perdue { --c: #6b7f88; }
+.hologramme-paris .pnl-carte .int { position: relative; background: #04121b; clip-path: var(--forme); padding: 10px 12px 12px 14px; display: grid; gap: 6px; overflow: hidden; }
+.hologramme-paris .pnl-carte .coin { position: absolute; top: 0; right: 0; width: 22px; height: 22px; background: var(--c); clip-path: polygon(0 0, 100% 0, 100% 100%); }
+.hologramme-paris .pnl-carte .hachures { position: absolute; top: 6px; right: 28px; width: 46px; height: 7px; background: repeating-linear-gradient(-55deg, var(--c) 0 4px, transparent 4px 8px); }
+.hologramme-paris .pnl-carte .barre-haut { position: absolute; top: 0; left: 30px; width: 38%; height: 3px; background: var(--c); transform-origin: left; }
+.hologramme-paris .pnl-carte .barre-bas { position: absolute; bottom: 0; right: 24px; width: 22%; height: 3px; background: var(--c); opacity: .7; transform-origin: right; }
+.hologramme-paris .pnl-carte .encoche { position: absolute; left: 0; top: 30%; width: 3px; height: 30%; background: var(--c); }
+.hologramme-paris .pnl-carte .tri { position: absolute; left: 6px; bottom: 6px; width: 8px; height: 8px; background: var(--c); clip-path: polygon(0 0, 0 100%, 100% 100%); }
+.hologramme-paris .pnl-carte .scan { position: absolute; left: 0; right: 0; height: 22px; top: -24px; background: linear-gradient(180deg, transparent, var(--c), transparent); opacity: 0; mix-blend-mode: screen; pointer-events: none; }
+.hologramme-paris .pnl-carte .haut { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-right: 70px; }
+.hologramme-paris .pnl-carte b { font-weight: 500; color: #e6fbff; font-size: 13px; }
+.hologramme-paris .pnl-carte .st { font-size: 10px; letter-spacing: .08em; color: var(--c); text-transform: uppercase; white-space: nowrap; }
+.hologramme-paris .pnl-carte .jauge { display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px; }
+.hologramme-paris .pnl-carte .jauge i { height: 5px; background: #0d2b38; clip-path: polygon(2px 0, 100% 0, calc(100% - 2px) 100%, 0 100%); transition: background .1s; }
+.hologramme-paris .pnl-carte .jauge i.p { background: var(--c); box-shadow: 0 0 6px var(--c); }
+.hologramme-paris .pnl-carte .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.hologramme-paris .pnl-carte .chips span { font-size: 10px; padding: 1px 7px; color: #cdeffa; border: 1px solid #1d4d61; clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
+.hologramme-paris .pnl-carte .pied { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; color: #7fc6da; }
+.hologramme-paris .pnl-carte .pied em { font-style: normal; color: var(--c); }
+
+.hologramme-paris .pnl-carte.anime { animation: pnl-cadre .45s cubic-bezier(.2,.8,.2,1) var(--retard, 0s) both; }
+.hologramme-paris .pnl-carte.anime .int { animation: pnl-scintille .5s steps(1) calc(var(--retard, 0s) + .25s) both; }
+.hologramme-paris .pnl-carte.anime .scan { animation: pnl-balaie .55s ease-out calc(var(--retard, 0s) + .1s) both; }
+.hologramme-paris .pnl-carte.anime .barre-haut { animation: pnl-trace .4s ease-out calc(var(--retard, 0s) + .3s) both; }
+.hologramme-paris .pnl-carte.anime .barre-bas { animation: pnl-trace .4s ease-out calc(var(--retard, 0s) + .45s) both; }
+.hologramme-paris .pnl-carte.anime :is(.hachures, .coin, .tri) { animation: pnl-apparait .3s steps(3) calc(var(--retard, 0s) + .5s) both; }
+.hologramme-paris .pnl-carte.anime .chips span { animation: pnl-pop .3s cubic-bezier(.3,1.6,.5,1) both; }
+.hologramme-paris .pnl-carte.sortie { animation: pnl-replie .42s cubic-bezier(.6,0,.8,.4) both; }
+.hologramme-paris .pnl-carte.sortie .int { animation: pnl-scintille-sortie .25s steps(1) both; }
+.hologramme-paris .pnl-carte.sortie .scan { animation: pnl-remonte .3s ease-in both; }
+.hologramme-paris .pnl-carte.sortie .chips span { animation: pnl-fond .18s ease-in both; }
+.hologramme-paris .pnl-carte.sortie :is(.barre-haut, .barre-bas) { animation: pnl-efface .2s ease-in both; }
+@keyframes pnl-cadre { 0% { clip-path: polygon(0 50%, 0 50%, 0 50%, 0 50%, 0 50%, 0 50%, 0 50%, 0 50%); opacity: .2; } 100% { clip-path: var(--forme); opacity: 1; } }
+@keyframes pnl-replie { 0% { clip-path: var(--forme); opacity: 1; max-height: 200px; }
+  55% { clip-path: polygon(0 49%, 100% 49%, 100% 49%, 100% 51%, 100% 51%, 0 51%, 0 51%, 0 49%); opacity: 1; max-height: 200px; }
+  100% { clip-path: polygon(50% 49%, 50% 49%, 50% 49%, 50% 51%, 50% 51%, 50% 51%, 50% 51%, 50% 49%); opacity: 0; max-height: 0; } }
+@keyframes pnl-balaie { 0% { top: -24px; opacity: .9; } 100% { top: 110%; opacity: 0; } }
+@keyframes pnl-remonte { 0% { top: 110%; opacity: .9; } 100% { top: -24px; opacity: 0; } }
+@keyframes pnl-scintille { 0% { opacity: .35; } 20% { opacity: 1; } 35% { opacity: .6; } 50% { opacity: 1; } 70% { opacity: .85; } 100% { opacity: 1; } }
+@keyframes pnl-scintille-sortie { 0% { opacity: 1; } 30% { opacity: .4; } 55% { opacity: .9; } 80% { opacity: .3; } 100% { opacity: .7; } }
+@keyframes pnl-trace { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes pnl-efface { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@keyframes pnl-apparait { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pnl-pop { from { opacity: 0; transform: translateY(4px) scale(.8); } to { opacity: 1; transform: none; } }
+@keyframes pnl-fond { to { opacity: 0; transform: scale(.7); } }
+@media (prefers-reduced-motion: reduce) { .hologramme-paris .pnl-carte, .hologramme-paris .pnl-carte * { animation: none !important; } }
+
+/* ---------- Allumage de l'hologramme ---------- */
+.hologramme-paris .holo-boot { position: absolute; inset: 0; z-index: 3; background: #02080d; display: flex; flex-direction: column; justify-content: center; gap: 10px;
+  padding: 0 18%; font-size: 11px; letter-spacing: .12em; color: #7fc6da; transition: opacity .5s ease .1s; }
+.hologramme-paris .holo-boot.fin { opacity: 0; pointer-events: none; }
+.hologramme-paris .boot-titre { color: #fff0d0; font-size: 13px; letter-spacing: .3em; animation: boot-scintille 1.2s steps(1) both; }
+.hologramme-paris .boot-ligne { animation: boot-ligne .35s steps(4) both; white-space: nowrap; overflow: hidden; }
+.hologramme-paris .boot-ligne.erreur { color: #ff6b6b; }
+.hologramme-paris .boot-barre { height: 3px; background: #0d2b38; margin-top: 6px; }
+/* La barre avance par transformation (animée par la carte graphique) : elle reste fluide même pendant la construction de la ville */
+.hologramme-paris .boot-barre i { display: block; height: 100%; width: 100%; background: #37d6ff; box-shadow: 0 0 8px #37d6ff;
+  transform-origin: left; transform: scaleX(0); transition: transform .45s linear; will-change: transform; }
+@keyframes boot-ligne { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes boot-scintille { 0% { opacity: 0; } 10% { opacity: 1; } 20% { opacity: .3; } 30% { opacity: 1; } 100% { opacity: 1; } }
+.hologramme-paris .holo-scene .holo-etiquette { transition: opacity .6s ease; }
+.hologramme-paris .holo-scene:not(.allumee) .holo-etiquette { opacity: 0; }
+.hologramme-paris .holo-scene .holo-hud { transition: opacity .6s ease; }
+.hologramme-paris .holo-scene:not(.allumee) .holo-hud :is(.bandeau, .pied, .compas, .reticule) { opacity: 0; }
+.hologramme-paris .holo-scene.allumee .holo-hud :is(.bandeau, .pied, .compas, .reticule) { animation: boot-scintille .7s steps(1) both; }
+.hologramme-paris .holo-scene.allumee .holo-hud .coin { animation: boot-coin .5s ease-out both; }
+@keyframes boot-coin { from { width: 0; height: 0; } to { width: 26px; height: 26px; } }
+@media (prefers-reduced-motion: reduce) { .hologramme-paris .holo-boot, .hologramme-paris .holo-boot * , .hologramme-paris .holo-hud * { animation: none !important; transition: none !important; } }

@@ -1,0 +1,44 @@
+<div class="salle">
+  <p class="salle-etat etat-{{etatCle}}"><i class="fa-solid fa-circle" inert></i> {{etatNom}}
+    <button type="button" data-action="hologramme" style="float:right"><i class="fa-solid fa-city" inert></i> Hologramme</button></p>
+
+  {{#unless connecte}}
+  <div class="salle-bloque">
+    <p>{{localize "SALLE.Bloque"}}</p>
+    {{#if estMj}}
+    <p class="hint">{{localize "SALLE.Lancer"}}</p>
+    <button type="button" data-action="reessayer"><i class="fa-solid fa-rotate" inert></i> {{localize "SALLE.Reessayer"}}</button>
+    {{/if}}
+    {{#if aDesDonnees}}<p class="hint">{{localize "SALLE.DerniereCopie"}}</p>{{/if}}
+  </div>
+  {{/unless}}
+
+  {{#if aDesDonnees}}
+  <table class="salle-unites">
+    <thead><tr><th>{{localize "SALLE.Nom"}}</th><th>{{localize "SALLE.Force"}}</th><th>{{localize "SALLE.Statut"}}</th></tr></thead>
+    <tbody>
+      {{#each unites as |u|}}
+      <tr data-unite="{{u.id}}">
+        <td>{{u.nom}}</td>
+        {{#if @root.editable}}
+        <td><input type="number" data-champ="force" value="{{u.force}}" min="0" max="10" step="1"></td>
+        <td><select data-champ="statut">{{#each u.statuts as |s|}}<option value="{{s.cle}}" {{#if s.choisi}}selected{{/if}}>{{s.nom}}</option>{{/each}}</select></td>
+        {{else}}
+        <td>{{u.force}}</td>
+        <td>{{u.statutNom}}</td>
+        {{/if}}
+      </tr>
+      {{/each}}
+    </tbody>
+  </table>
+  {{else}}
+  {{#if connecte}}<p class="hint">{{localize "SALLE.Aucune"}}</p>{{/if}}
+  {{/if}}
+
+  {{#if editable}}
+  <div class="salle-ajout">
+    <input type="text" name="nouveau" maxlength="80" placeholder="{{localize "SALLE.NouveauNom"}}">
+    <button type="button" data-action="ajouter"><i class="fa-solid fa-plus" inert></i> {{localize "SALLE.Ajouter"}}</button>
+  </div>
+  {{/if}}
+</div>

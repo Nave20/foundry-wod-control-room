@@ -1,0 +1,34 @@
+{
+  "SALLE": {
+    "Titre": "Salle de contrôle",
+    "Ouvrir": "Salle de contrôle",
+    "Port": "Port du mini-serveur",
+    "PortAide": "Port HTTP du mini-serveur sur cet ordinateur (30010 par défaut). Le serveur n'écoute que sur 127.0.0.1.",
+    "Etat": {
+      "connecte": "Mini-serveur connecté",
+      "hors_ligne": "Mini-serveur non connecté",
+      "inconnu": "Connexion au mini-serveur…",
+      "sansMj": "En attente du MJ"
+    },
+    "Bloque": "Ce module a besoin du mini-serveur de la salle de contrôle, lancé sur l'ordinateur du MJ. Tant qu'il ne répond pas, le module est bloqué : rien n'est lu ni modifié.",
+    "Lancer": "Pour le lancer : python server/control_room_server.py http (dans le dossier du module). Voir le README du module.",
+    "Reessayer": "Réessayer",
+    "AvertissementDemarrage": "Salle de contrôle : le mini-serveur ne répond pas sur le port {port}. Le module reste bloqué tant qu'il n'est pas lancé (voir le README du module).",
+    "Reconnecte": "Salle de contrôle : mini-serveur connecté.",
+    "Perdu": "Salle de contrôle : connexion au mini-serveur perdue. Module bloqué jusqu'à son retour.",
+    "DerniereCopie": "Dernières données reçues, en lecture seule.",
+    "Aucune": "Aucune unité pour l'instant.",
+    "Nom": "Nom",
+    "Force": "Force",
+    "Statut": "Statut",
+    "Ajouter": "Ajouter une unité",
+    "NouveauNom": "Nom de la nouvelle unité",
+    "Refuse": "Le mini-serveur a refusé : {erreur}",
+    "Statuts": {
+      "disponible": "Disponible",
+      "en_mission": "En mission",
+      "blessee": "Blessée",
+      "perdue": "Perdue"
+    }
+  }
+}
