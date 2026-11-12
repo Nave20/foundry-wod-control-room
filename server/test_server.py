@@ -24,15 +24,16 @@ class TestMagasin(unittest.TestCase):
         self.dossier.cleanup()
 
     def test_creation_et_modification(self):
-        self.assertEqual(self.m.lire(), {"version": 0, "unites": {}})
+        self.assertEqual(self.m.public(), {"version": 0, "unites": {}, "date_jeu": ""})
         d = self.m.modifier("verbenae", {"nom": "Verbenae de Montreuil", "force": 3})
         self.assertEqual(d["version"], 1)
         self.assertEqual(d["unites"]["verbenae"], {"nom": "Verbenae de Montreuil", "force": 3, "statut": "disponible"})
-        d = self.m.modifier("verbenae", {"statut": "en_mission"})
+        d = self.m.modifier("verbenae", {"statut": "engage", "retour": "2019-05-03"})
         self.assertEqual((d["version"], d["unites"]["verbenae"]["force"]), (2, 3))
 
     def test_valeurs_refusees(self):
-        for champs in ({"force": 11}, {"force": "3"}, {"force": True}, {"statut": "parti"}, {"nom": ""}, {"pirate": 1}):
+        for champs in ({"force": 5}, {"force": "3"}, {"force": True}, {"statut": "parti"}, {"nom": ""}, {"pirate": 1},
+                       {"retour": "demain"}, {"membres": -1}, {"notes": "x" * 601}):
             with self.assertRaises(ValueError, msg=champs):
                 self.m.modifier("a", champs)
         with self.assertRaises(ValueError):
@@ -45,6 +46,31 @@ class TestMagasin(unittest.TestCase):
         for champs in ({"composition": "pas une liste"}, {"composition": [""]}, {"lieu": "x" * 81}):
             with self.assertRaises(ValueError, msg=champs):
                 self.m.modifier("a", champs)
+
+    def test_synchro_rolling(self):
+        """Rolling envoie la réserve ; un changement Foundry pas encore reporté survit à la synchro suivante"""
+        r = self.m.synchroniser({"r-mars": {"nom": "Mars", "force": 3, "statut": "engage"}, "ether": {"nom": "Éther", "force": 2}}, "2019-04-20")
+        self.assertTrue(r["change"])
+        self.assertEqual(self.m.public()["date_jeu"], "2019-04-20")
+        self.assertFalse(self.m.synchroniser({"r-mars": {"nom": "Mars", "force": 3, "statut": "engage"}, "ether": {"nom": "Éther", "force": 2}})["change"])
+        self.m.modifier("r-mars", {"statut": "blesse"})        # depuis Foundry
+        self.m.supprimer("ether")
+        att = self.m.changements()["en_attente"]
+        self.assertEqual([(c["id"], c.get("champs"), c.get("supprime")) for c in att],
+                         [("r-mars", {"statut": "blesse"}, None), ("ether", None, True)])
+        # Rolling n'a pas encore vu ces changements : sa synchro ne doit pas les écraser
+        self.m.synchroniser({"r-mars": {"nom": "Mars", "force": 3, "statut": "engage"}, "ether": {"nom": "Éther", "force": 2}})
+        u = self.m.public()["unites"]
+        self.assertEqual((u["r-mars"]["statut"], "ether" in u), ("blesse", False))
+        self.assertEqual(self.m.acquitter(att[-1]["seq"]), {"en_attente": 0})
+        self.m.synchroniser({"r-mars": {"nom": "Mars", "force": 3, "statut": "blesse"}})
+        self.assertEqual(list(self.m.public()["unites"]), ["r-mars"])
+        with self.assertRaises(ValueError):
+            self.m.synchroniser({"../x": {"nom": "a"}})
+
+    def test_creation_mise_en_attente_complete(self):
+        self.m.modifier("garde", {"nom": "Garde du Node", "force": 1})
+        self.assertEqual(self.m.changements()["en_attente"][0]["champs"], {"nom": "Garde du Node", "force": 1, "statut": "disponible"})
 
     def test_suppression(self):
         self.m.modifier("a", {"force": 1})
@@ -106,12 +132,13 @@ class TestMCP(unittest.TestCase):
         self.assertEqual(r["result"]["serverInfo"]["name"], "control-room")
         self.assertIsNone(traiter_mcp(self.m, {"jsonrpc": "2.0", "method": "notifications/initialized"}))
         noms = [o["name"] for o in traiter_mcp(self.m, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})["result"]["tools"]]
-        self.assertEqual(noms, ["lister_unites", "modifier_unite"])
+        self.assertEqual(noms, ["lister_unites", "modifier_unite", "synchroniser_reserve", "recuperer_changements",
+                                "acquitter_changements", "etat_serveur_foundry", "lancer_serveur_foundry"])
         r = traiter_mcp(self.m, {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
                                  "params": {"name": "modifier_unite", "arguments": {"id": "a", "force": 4}}})
         self.assertEqual(r["result"]["structuredContent"]["unites"]["a"]["force"], 4)
         r = traiter_mcp(self.m, {"jsonrpc": "2.0", "id": 4, "method": "tools/call",
-                                 "params": {"name": "modifier_unite", "arguments": {"id": "a", "force": 40}}})
+                                 "params": {"name": "modifier_unite", "arguments": {"id": "a", "force": 5}}})
         self.assertTrue(r["result"]["isError"])
 
     def test_processus_stdio(self):

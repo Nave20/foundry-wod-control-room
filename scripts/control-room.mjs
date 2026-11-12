@@ -13,7 +13,8 @@ const ID = "wod-control-room";
 const DELAI_APPEL = 2500;
 const INTERVALLE_CONNECTE = 3000;
 const INTERVALLE_HORS_LIGNE = 15000;
-const STATUTS = ["disponible", "en_mission", "blessee", "perdue"];
+// Statuts de la Réserve du Conseil (« Rolling in the Deep » est la référence)
+const STATUTS = ["disponible", "engage", "blesse", "perdu", "absent", "vide"];
 
 /** État de la connexion vu par ce client (MJ actif seulement) */
 let etat = "inconnu";
@@ -141,9 +142,10 @@ class SalleDeControle extends HandlebarsApplicationMixin(ApplicationV2) {
     const sansMj = !game.users.activeGM;
     const connecte = (c.etat === "connecte") && !sansMj;
     const unites = Object.entries(c.donnees?.unites ?? {})
-      .map(([id, u]) => ({ id, nom: u.nom, force: u.force, statuts: STATUTS.map(s => ({ cle: s, nom: loc(`Statuts.${s}`), choisi: s === u.statut })),
+      .filter(([, u]) => u.statut !== "absent")  // « À gagner » : pas encore au Conseil
+      .map(([id, u]) => ({ id, nom: u.nom, force: u.force, membres: u.membres ?? "", arete: u.arete ?? "", statuts: STATUTS.map(s => ({ cle: s, nom: loc(`Statuts.${s}`), choisi: s === u.statut })),
         statutNom: loc(`Statuts.${u.statut}`) }))
-      .sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
+      .sort((a, b) => (c.donnees.unites[a.id].ordre ?? 999) - (c.donnees.unites[b.id].ordre ?? 999) || a.nom.localeCompare(b.nom, "fr"));
     return {
       connecte, unites,
       etatCle: sansMj ? "sansMj" : (c.etat ?? "inconnu"),
@@ -190,6 +192,13 @@ Hooks.once("init", () => {
     onChange: () => { premierEssai = true; verifier(); }
   });
   // Dernière copie des données, transmise par Foundry à tous les clients
+  // Densité de l'hologramme, propre à chaque PC : automatique (mesurée au premier lancement), complète ou légère
+  game.settings.register(ID, "qualite", {
+    name: "Qualité de l'hologramme", hint: "Automatique : la fluidité est mesurée au premier lancement sur ce PC ; la qualité complète est gardée si elle passe bien.",
+    scope: "client", config: true, type: String, default: "auto",
+    choices: { auto: "Automatique", complet: "Complète (419 000 bâtiments)", leger: "Légère (184 000 bâtiments)" }
+  });
+  game.settings.register(ID, "qualiteMesuree", { scope: "client", config: false, type: String, default: "" });
   game.settings.register(ID, "copie", {
     scope: "world", config: false, type: Object, default: { etat: "inconnu", donnees: { version: 0, unites: {} } },
     onChange: () => SalleDeControle.instance?.render()

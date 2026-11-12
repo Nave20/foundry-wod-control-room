@@ -3,7 +3,11 @@
  * Les données viennent du réglage « copie » (mini-serveur). Une mise à jour des données modifie les cartes sur place,
  * sans rejouer l'animation ; seules les nouvelles cartes s'allument.
  */
-const STATUTS = { disponible: "Disponible", en_mission: "En mission", blessee: "Blessée", perdue: "Perdue" };
+// Statuts et puissance (0 à 4) de la Réserve du Conseil de « Rolling in the Deep »
+const STATUTS = { disponible: "Disponible", engage: "Engagée", blesse: "Indisponible", perdu: "Perdue", absent: "À gagner", vide: "Vide" };
+const PUISSANCE_MAX = 4;
+const ordre = u => u.ordre ?? 999;
+const dateCourte = s => { const [a, m, j] = String(s).split("-"); return j ? `${j}/${m}` : s; };
 const SIGNES = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#%&@";
 const reduit = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 const DECOR = '<i class="scan"></i><i class="coin"></i><i class="hachures"></i><i class="barre-haut"></i><i class="barre-bas"></i><i class="encoche"></i><i class="tri"></i>';
@@ -19,7 +23,8 @@ export class PanneauUnites {
 
   /** Nouvelles données : { id: unité } */
   maj(unites) {
-    this.unites = unites ?? {};
+    // Les unités « À gagner » ne sont pas encore au Conseil : elles n'apparaissent pas dans la salle de contrôle
+    this.unites = Object.fromEntries(Object.entries(unites ?? {}).filter(([, u]) => u.statut !== "absent"));
     const groupes = this.#groupes();
     for ( const g of groupes.keys() ) if ( !this.connus.has(g) ) { this.connus.add(g); this.ouverts.add(g); }
     // Groupes : créer ou retirer les blocs, dans l'ordre alphabétique
@@ -41,7 +46,9 @@ export class PanneauUnites {
       bloc.querySelector(".pnl-titre").classList.toggle("ouvert", this.ouverts.has(g));
       if ( this.ouverts.has(g) ) this.#remplir(bloc, ids, false);
     }
-    [...this.racine.querySelectorAll(":scope > .pnl-groupe")].sort((a, b) => a.dataset.groupe.localeCompare(b.dataset.groupe, "fr"))
+    // Groupes dans l'ordre de la Réserve (celui de leur première unité)
+    const rang = g => Math.min(...(groupes.get(g) ?? []).map(id => ordre(this.unites[id])));
+    [...this.racine.querySelectorAll(":scope > .pnl-groupe")].sort((a, b) => rang(a.dataset.groupe) - rang(b.dataset.groupe))
       .forEach(b => this.racine.append(b));
     if ( !groupes.size ) this.racine.innerHTML = `<p class="pnl-vide">Aucune unité.</p>`;
     else this.racine.querySelector(".pnl-vide")?.remove();
@@ -54,7 +61,7 @@ export class PanneauUnites {
       if ( !groupes.has(g) ) groupes.set(g, []);
       groupes.get(g).push(id);
     }
-    for ( const ids of groupes.values() ) ids.sort((a, b) => this.unites[a].nom.localeCompare(this.unites[b].nom, "fr"));
+    for ( const ids of groupes.values() ) ids.sort((a, b) => ordre(this.unites[a]) - ordre(this.unites[b]) || this.unites[a].nom.localeCompare(this.unites[b].nom, "fr"));
     return groupes;
   }
 
@@ -86,26 +93,34 @@ export class PanneauUnites {
   #creer(id) {
     const c = document.createElement("div"); c.className = "pnl-carte"; c.dataset.id = id;
     c.innerHTML = `<div class="int">${DECOR}<div class="haut"><b></b><span class="st"></span></div>`
-      + `<div class="jauge">${"<i></i>".repeat(10)}</div><div class="chips"></div><div class="pied"><span>FORCE <em></em></span><span class="lieu"></span></div></div>`;
+      + `<div class="jauge">${"<i></i>".repeat(PUISSANCE_MAX)}</div><div class="chips"></div><div class="pied"><span>PUISSANCE <em></em></span><span class="lieu"></span></div></div>`;
     return c;
   }
 
   /** Remplit une carte ; `rang` (nombre) = carte qui s'allume, avec ce décalage dans la cascade */
   #ecrire(c, u, rang) {
     const anim = (rang !== null) && !reduit();
-    c.classList.toggle("mission", u.statut === "en_mission");
-    c.classList.toggle("blessee", u.statut === "blessee");
-    c.classList.toggle("perdue", u.statut === "perdue");
+    c.classList.toggle("mission", u.statut === "engage");
+    c.classList.toggle("blessee", u.statut === "blesse");
+    c.classList.toggle("perdue", ["perdu", "vide"].includes(u.statut));
+    c.classList.toggle("absente", u.statut === "absent");
     c.querySelector(".st").textContent = STATUTS[u.statut] ?? u.statut;
-    c.querySelector("em").textContent = u.force;
-    c.querySelector(".lieu").textContent = u.lieu ?? "";
+    c.querySelector("em").textContent = `${u.force ?? 0}/${PUISSANCE_MAX}`;
+    // Pied : où l'unité est engagée et quand elle revient
+    const lieu = c.querySelector(".lieu");
+    const engagee = ["engage", "blesse"].includes(u.statut);
+    lieu.textContent = engagee ? [u.mission, u.retour ? `retour ${dateCourte(u.retour)}` : ""].filter(Boolean).join(" · ") : (u.lieu ?? "");
+    lieu.title = engagee ? (u.mission ?? "") : (u.notes ?? "");
+    // Étiquettes : nombre de mages et Arété (ou l'ancienne composition)
+    const etiquettes = u.composition?.length ? u.composition
+      : [u.membres ? `${u.membres} mage${u.membres > 1 ? "s" : ""}` : "", u.arete ? `Arété ${u.arete}` : ""].filter(Boolean);
     const chips = c.querySelector(".chips");
-    chips.replaceChildren(...(u.composition ?? []).map((t, k) => {
-      const s = document.createElement("span"); s.textContent = t;
+    chips.replaceChildren(...etiquettes.map((t, k) => {
+      const s = document.createElement("span"); s.textContent = t; s.title = t;
       if ( anim ) s.style.animationDelay = `${0.55 + rang * 0.12 + k * 0.06}s`;
       return s;
     }));
-    chips.hidden = !(u.composition?.length);
+    chips.hidden = !etiquettes.length;
     const nom = c.querySelector("b"), segments = [...c.querySelectorAll(".jauge i")];
     if ( !anim ) {
       nom.textContent = u.nom;

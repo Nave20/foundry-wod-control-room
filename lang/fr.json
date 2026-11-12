@@ -19,16 +19,20 @@
     "DerniereCopie": "Dernières données reçues, en lecture seule.",
     "Aucune": "Aucune unité pour l'instant.",
     "Nom": "Nom",
-    "Force": "Force",
+    "Force": "Puissance",
     "Statut": "Statut",
     "Ajouter": "Ajouter une unité",
     "NouveauNom": "Nom de la nouvelle unité",
     "Refuse": "Le mini-serveur a refusé : {erreur}",
     "Statuts": {
       "disponible": "Disponible",
-      "en_mission": "En mission",
-      "blessee": "Blessée",
-      "perdue": "Perdue"
-    }
+      "engage": "Engagée",
+      "blesse": "Indisponible",
+      "perdu": "Perdue",
+      "absent": "À gagner",
+      "vide": "Vide"
+    },
+    "Mages": "Mages",
+    "Arete": "Arété"
   }
 }

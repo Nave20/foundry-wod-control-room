@@ -7,7 +7,24 @@ import { PanneauUnites } from "./units-panel.mjs";
 
 const ID = "wod-control-room";
 const THREE_URL = "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js";
-let THREE = null, donnees = null;
+let THREE = null;
+/** Données de Paris par niveau de qualité (chargées une fois par session) */
+const DONNEES = {};
+const FICHIERS = { complet: "paris.bin", leger: "paris-light.bin" };
+const NOMS_NIVEAU = { complet: "complète", leger: "légère" };
+async function chargerNiveau(n) {
+  if ( !DONNEES[n] ) {
+    const r = await fetch(`modules/${ID}/data/${FICHIERS[n]}`);
+    if ( !r.ok ) throw new Error(`fichier introuvable (${r.status})`);
+    DONNEES[n] = lireParis(await r.arrayBuffer());
+  }
+  return DONNEES[n];
+}
+/** Qualité voulue : réglage du joueur, ou mesure faite sur ce PC en mode automatique (légère tant qu'on n'a pas mesuré) */
+function niveauVoulu() {
+  const r = game.settings.get(ID, "qualite");
+  return r === "auto" ? (game.settings.get(ID, "qualiteMesuree") || "leger") : r;
+}
 
 const { ApplicationV2 } = foundry.applications.api;
 
@@ -55,11 +72,15 @@ export class Hologramme extends ApplicationV2 {
   #hud = null;
   /** Caméra : cible regardée, distance, angles ; la cible glisse vers « vers » quand on clique un monument */
   #cam = { az: 0.4, el: 0.7, dist: 7, cible: null, vers: null, distVers: null };
+  #niveau = null;
+  #donnees = null;
+  /** Mesure de fluidité en cours (mode automatique, premier lancement sur ce PC) */
+  #mesure = null;
 
   /** Centre la vue sur un monument (nom tel qu'affiché) */
   centrer(nom) {
     const e = this.#scene?.etiquettes.find(x => x.el.textContent === nom); if ( !e ) return false;
-    this.#cam.vers = (e.pied ?? e.v).clone(); this.#cam.distVers = 1.1; return true;
+    this.#cam.vers = (e.pied ?? e.v).clone(); this.#cam.distVers = e.el.classList.contains("arrondissement") ? 2.6 : 1.1; return true;
   }
 
   async _renderHTML() {
@@ -68,7 +89,10 @@ export class Hologramme extends ApplicationV2 {
     div.innerHTML = `<div class="holo-barre">
         <button type="button" data-holo="verticales">Arêtes verticales</button>
         <button type="button" data-holo="umbra">Vue Umbra</button>
-        <button type="button" data-holo="masquage" class="actif">Masquage et fondu</button></div>
+        <button type="button" data-holo="masquage" class="actif">Masquage et fondu</button>
+        <select data-holo="qualite" title="Densité de la ville">
+          <option value="auto">Qualité : automatique</option><option value="complet">Qualité : complète</option><option value="leger">Qualité : légère</option>
+        </select></div>
       <div class="holo-corps"><div class="holo-scene">${HUD}<div class="holo-boot"><div class="boot-titre">CONSEIL DE PARIS</div><div class="boot-lignes"></div><div class="boot-barre"><i></i></div></div></div><aside class="holo-panneau"></aside></div>
       <p class="holo-etat">Chargement de Paris…</p>`;
     return div;
@@ -103,12 +127,9 @@ export class Hologramme extends ApplicationV2 {
       await this.#etape("Ouverture de la projection holographique", 0.05);
       THREE ??= await import(THREE_URL);
       await this.#etape("Liaison IGN BD TOPO · Paris", 0.25);
-      if ( !donnees ) {
-        const r = await fetch(`modules/${ID}/data/paris-light.bin`);
-        if ( !r.ok ) throw new Error(`fichier introuvable (${r.status})`);
-        donnees = lireParis(await r.arrayBuffer());
-      }
-      await this.#etape(`${donnees.calques.batiments.nb.toLocaleString("fr-FR")} bâtiments reçus · relief et monuments`, 0.55);
+      this.#niveau = niveauVoulu();
+      this.#donnees = await chargerNiveau(this.#niveau);
+      await this.#etape(`${this.#donnees.calques.batiments.nb.toLocaleString("fr-FR")} bâtiments reçus · relief et monuments`, 0.55);
       await this.#etape("Construction de la ville", 0.7);
       const barre = this.element.querySelector(".boot-barre i");
       if ( barre ) { barre.style.transition = "transform 2.5s cubic-bezier(.2,.6,.4,1)"; barre.style.transform = "scaleX(.95)"; }
@@ -117,7 +138,17 @@ export class Hologramme extends ApplicationV2 {
       this.element.querySelector(".boot-lignes")?.append(Object.assign(document.createElement("div"), { className: "boot-ligne erreur", textContent: `> Échec : ${err.message}` }));
       return;
     }
-    etat.textContent = `${donnees.calques.batiments.nb.toLocaleString("fr-FR")} bâtiments, relief et monuments · IGN BD TOPO, Licence Ouverte 2.0`;
+    this.#majEtat();
+    const choix = this.element.querySelector("[data-holo=qualite]");
+    choix.value = game.settings.get(ID, "qualite");
+    choix.addEventListener("change", async ev => {
+      const valeur = ev.currentTarget.value;
+      await game.settings.set(ID, "qualite", valeur);
+      if ( valeur === "auto" ) await game.settings.set(ID, "qualiteMesuree", "");  // nouvelle mesure
+      const n = niveauVoulu();
+      if ( n !== this.#niveau ) await this.#changerNiveau(n);
+      if ( valeur === "auto" ) this.#mesure = { debut: performance.now() + 500, images: 0 };
+    });
     this.element.querySelector("[data-holo=verticales]").addEventListener("click", ev => {
       this.#verticales = !this.#verticales; ev.currentTarget.classList.toggle("actif", this.#verticales); this.#reconstruire(); });
     this.element.querySelector("[data-holo=masquage]").addEventListener("click", ev => {
@@ -140,6 +171,64 @@ export class Hologramme extends ApplicationV2 {
     this.element?.querySelector(".holo-scene")?.classList.add("allumee");
     this.element?.querySelector(".holo-boot")?.remove();
     this.#majUnites();
+    // Mode automatique, première fois sur ce PC : on mesure la fluidité pendant 3 secondes
+    if ( (game.settings.get(ID, "qualite") === "auto") && !game.settings.get(ID, "qualiteMesuree") ) {
+      this.#mesure = { debut: performance.now() + 500, images: 0 };
+    }
+  }
+
+  #majEtat() {
+    const etat = this.element?.querySelector(".holo-etat"); if ( !etat || !this.#donnees ) return;
+    etat.textContent = `${this.#donnees.calques.batiments.nb.toLocaleString("fr-FR")} bâtiments (qualité ${NOMS_NIVEAU[this.#niveau]}), relief et monuments · IGN BD TOPO, Licence Ouverte 2.0`;
+  }
+
+  /**
+   * Change la densité de la ville. Le calcul fige l'écran une à deux secondes : on remet donc l'écran de chargement
+   * (mêmes lignes, même barre), puis la ville s'élève à nouveau.
+   */
+  async #changerNiveau(n, { automatique = false } = {}) {
+    const scene = this.element?.querySelector(".holo-scene"); if ( !scene ) return;
+    const reduit = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    scene.querySelector(".holo-boot")?.remove();
+    const boot = document.createElement("div");
+    boot.className = "holo-boot";
+    boot.innerHTML = `<div class="boot-titre">CONSEIL DE PARIS</div><div class="boot-lignes"></div><div class="boot-barre"><i></i></div>`;
+    scene.append(boot);
+    this.#dernierPas = 0;
+    await this.#etape(automatique ? `Adaptation à ce PC : qualité ${NOMS_NIVEAU[n]}` : `Passage en qualité ${NOMS_NIVEAU[n]}`, 0.15);
+    this.#donnees = await chargerNiveau(n);
+    this.#niveau = n;
+    await this.#etape(`${this.#donnees.calques.batiments.nb.toLocaleString("fr-FR")} bâtiments reçus`, 0.5);
+    await this.#etape("Reconstruction de la ville", 0.7);
+    const barre = boot.querySelector(".boot-barre i");
+    if ( barre ) { barre.style.transition = "transform 2.5s cubic-bezier(.2,.6,.4,1)"; barre.style.transform = "scaleX(.95)"; }
+    await new Promise(r => setTimeout(r, 60));
+    this.#reconstruire();
+    if ( !reduit ) this.#scene.ville.groupe.scale.y = 0.02;  // la ville s'élèvera de nouveau
+    this.#majEtat();
+    if ( barre ) barre.style.transition = "transform .45s linear";
+    await this.#etape("Projection prête", 1);
+    await new Promise(r => setTimeout(r, DUREE_ETAPE));
+    boot.classList.add("fin");
+    if ( reduit ) { boot.remove(); return; }
+    this.#allumage = performance.now();
+  }
+
+  /** Mesure de fluidité : images rendues pendant 3 s. En légère : 50 images/s ou plus → complète. En complète : moins de 40 → légère. */
+  #mesurer() {
+    const m = this.#mesure, maintenant = performance.now();
+    if ( maintenant < m.debut ) return;
+    m.images++;
+    const duree = maintenant - m.debut;
+    if ( duree < 3000 ) return;
+    const ips = m.images / (duree / 1000);
+    this.#mesure = null;
+    const n = this.#niveau === "complet" ? (ips >= 40 ? "complet" : "leger") : (ips >= 50 ? "complet" : "leger");
+    game.settings.set(ID, "qualiteMesuree", n);
+    if ( n !== this.#niveau ) {
+      ui.notifications.info(`Hologramme : qualité ${NOMS_NIVEAU[n]} choisie pour ce PC (${Math.round(ips)} images/s mesurées).`);
+      this.#changerNiveau(n, { automatique: true });
+    }
   }
 
   #majUnites() {
@@ -161,13 +250,13 @@ export class Hologramme extends ApplicationV2 {
     const sc = this.#scene; if ( !sc ) return;
     if ( sc.ville ) { sc.S.remove(sc.ville.groupe); sc.ville.groupe.traverse(o => { o.geometry?.dispose(); o.material?.dispose(); }); }
     sc.etiquettes.forEach(e => e.el.remove());
-    sc.ville = construireParis(THREE, donnees, { mode: this.#mode, verticales: this.#verticales, masquage: this.#masquage });
+    sc.ville = construireParis(THREE, this.#donnees, { mode: this.#mode, verticales: this.#verticales, masquage: this.#masquage });
     sc.S.add(sc.ville.groupe); sc.R.setClearColor(PALETTES[this.#mode].fond);
     // Fondu : les traits s'éteignent vers la couleur du fond en s'éloignant de la caméra
     sc.S.fog = this.#masquage ? new THREE.Fog(PALETTES[this.#mode].fond, 1, 10) : null;
     sc.etiquettes = sc.ville.etiquettes.map(e => {
       const el = document.createElement("div"); el.className = `holo-etiquette ${e.classe}`; el.textContent = e.texte;
-      if ( e.classe === "monument" ) el.addEventListener("click", ev => { ev.stopPropagation(); this.centrer(e.texte); });
+      if ( ["monument", "arrondissement"].includes(e.classe) ) el.addEventListener("click", ev => { ev.stopPropagation(); this.centrer(e.texte); });
       sc.conteneur.appendChild(el); return { el, v: e.position, pied: e.pied };
     });
   }
@@ -229,6 +318,7 @@ export class Hologramme extends ApplicationV2 {
         }
         if ( S.fog ) { S.fog.near = dist * 0.55; S.fog.far = dist * 2.4; }
         C.lookAt(cible); R.render(S, C);
+        if ( this.#mesure ) this.#mesurer();
         this.#majHud(cam);
         for ( const e of this.#scene.etiquettes ) {
           v.copy(e.v).project(C);

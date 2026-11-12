@@ -65,6 +65,8 @@
 .hologramme-paris .pnl-carte.mission { --c: #ffb35c; }
 .hologramme-paris .pnl-carte.blessee { --c: #ff6b6b; }
 .hologramme-paris .pnl-carte.perdue { --c: #6b7f88; }
+.hologramme-paris .pnl-carte.absente { --c: #8fa6b0; opacity: .75; }
+.hologramme-paris .pnl-carte .lieu { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
 .hologramme-paris .pnl-carte .int { position: relative; background: #04121b; clip-path: var(--forme); padding: 10px 12px 12px 14px; display: grid; gap: 6px; overflow: hidden; }
 .hologramme-paris .pnl-carte .coin { position: absolute; top: 0; right: 0; width: 22px; height: 22px; background: var(--c); clip-path: polygon(0 0, 100% 0, 100% 100%); }
 .hologramme-paris .pnl-carte .hachures { position: absolute; top: 6px; right: 28px; width: 46px; height: 7px; background: repeating-linear-gradient(-55deg, var(--c) 0 4px, transparent 4px 8px); }
@@ -76,7 +78,7 @@
 .hologramme-paris .pnl-carte .haut { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-right: 70px; }
 .hologramme-paris .pnl-carte b { font-weight: 500; color: #e6fbff; font-size: 13px; }
 .hologramme-paris .pnl-carte .st { font-size: 10px; letter-spacing: .08em; color: var(--c); text-transform: uppercase; white-space: nowrap; }
-.hologramme-paris .pnl-carte .jauge { display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px; }
+.hologramme-paris .pnl-carte .jauge { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
 .hologramme-paris .pnl-carte .jauge i { height: 5px; background: #0d2b38; clip-path: polygon(2px 0, 100% 0, calc(100% - 2px) 100%, 0 100%); transition: background .1s; }
 .hologramme-paris .pnl-carte .jauge i.p { background: var(--c); box-shadow: 0 0 6px var(--c); }
 .hologramme-paris .pnl-carte .chips { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -132,3 +134,20 @@
 .hologramme-paris .holo-scene.allumee .holo-hud .coin { animation: boot-coin .5s ease-out both; }
 @keyframes boot-coin { from { width: 0; height: 0; } to { width: 26px; height: 26px; } }
 @media (prefers-reduced-motion: reduce) { .hologramme-paris .holo-boot, .hologramme-paris .holo-boot * , .hologramme-paris .holo-hud * { animation: none !important; transition: none !important; } }
+
+/* Pastilles d'arrondissement cliquables et sélecteur de qualité */
+.hologramme-paris .holo-etiquette.arrondissement { pointer-events: auto; cursor: pointer; transition: opacity .6s ease, box-shadow .15s ease; }
+.hologramme-paris .holo-etiquette.arrondissement:hover { box-shadow: 0 0 12px rgb(255 240 208 / .7); border-color: rgb(255 240 208 / .9); }
+.hologramme-paris .holo-barre select { flex: 0 0 auto; width: auto; height: auto; color: #cdeffa; background: #07151f; border: 1px solid #15394a; font-size: 12px; padding: 1px 6px; margin-left: auto; }
+
+/* Cartes à la largeur du panneau : un texte long (mission, Arété détaillée) est coupé avec « … » au lieu d'élargir la carte */
+.hologramme-paris .holo-panneau { overflow-x: hidden; }
+.hologramme-paris .pnl-liste { grid-template-columns: minmax(0, 1fr); }
+.hologramme-paris .pnl-carte, .hologramme-paris .pnl-carte .int > * { min-width: 0; }
+.hologramme-paris .pnl-carte .int { grid-template-columns: minmax(0, 1fr); }
+.hologramme-paris .pnl-carte .haut { padding-right: 66px; align-items: flex-start; }
+.hologramme-paris .pnl-carte .haut b { min-width: 0; overflow-wrap: anywhere; line-height: 1.2; }
+.hologramme-paris .pnl-carte .haut .st { flex: none; }
+.hologramme-paris .pnl-carte .chips span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hologramme-paris .pnl-carte .pied > span:first-child { flex: none; }
+.hologramme-paris .pnl-carte .lieu { flex: 1 1 auto; min-width: 0; max-width: none; text-align: right; }

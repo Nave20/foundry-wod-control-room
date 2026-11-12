@@ -15,13 +15,13 @@
 
   {{#if aDesDonnees}}
   <table class="salle-unites">
-    <thead><tr><th>{{localize "SALLE.Nom"}}</th><th>{{localize "SALLE.Force"}}</th><th>{{localize "SALLE.Statut"}}</th></tr></thead>
+    <thead><tr><th>{{localize "SALLE.Nom"}}</th><th>{{localize "SALLE.Mages"}}</th><th>{{localize "SALLE.Arete"}}</th><th>{{localize "SALLE.Force"}}</th><th>{{localize "SALLE.Statut"}}</th></tr></thead>
     <tbody>
       {{#each unites as |u|}}
       <tr data-unite="{{u.id}}">
-        <td>{{u.nom}}</td>
+        <td>{{u.nom}}</td><td>{{u.membres}}</td><td>{{u.arete}}</td>
         {{#if @root.editable}}
-        <td><input type="number" data-champ="force" value="{{u.force}}" min="0" max="10" step="1"></td>
+        <td><input type="number" data-champ="force" value="{{u.force}}" min="0" max="4" step="1"></td>
         <td><select data-champ="statut">{{#each u.statuts as |s|}}<option value="{{s.cle}}" {{#if s.choisi}}selected{{/if}}>{{s.nom}}</option>{{/each}}</select></td>
         {{else}}
         <td>{{u.force}}</td>

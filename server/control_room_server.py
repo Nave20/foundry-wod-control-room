@@ -15,15 +15,21 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import threading
+import time
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION_SERVEUR = "0.2.0"
+VERSION_SERVEUR = "0.4.0"
 PORT_DEFAUT = 30010
-STATUTS = ("disponible", "en_mission", "blessee", "perdue")
+# Mêmes statuts que la Réserve du Conseil de « Rolling in the Deep »
+STATUTS = ("disponible", "engage", "blesse", "perdu", "absent", "vide")
+ID_UNITE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 # Seules les pages servies depuis la machine elle-même peuvent appeler l'API (Foundry sur localhost)
 ORIGINE_LOCALE = re.compile(r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$")
 
@@ -34,7 +40,13 @@ def chemin_defaut() -> Path:
 
 
 class Magasin:
-    """Le fichier de données : { version, unites: { id: { nom, force, statut } } }"""
+    """
+    Le fichier de données : { version, unites: { id: unité }, date_jeu, seq, en_attente: [ { seq, id, champs | supprime } ] }.
+
+    Les unités suivent la Réserve du Conseil de « Rolling in the Deep », qui est la référence : la page envoie toute
+    la réserve (synchroniser). Chaque modification faite ailleurs (Foundry, page de liaison) est appliquée tout de suite
+    ici ET mise en attente, jusqu'à ce que la page l'ait reportée dans sa base (acquitter).
+    """
 
     def __init__(self, chemin: Path):
         self.chemin = Path(chemin)
@@ -54,7 +66,14 @@ class Magasin:
             d = {}
         d.setdefault("version", 0)
         d.setdefault("unites", {})
+        d.setdefault("seq", 0)
+        d.setdefault("en_attente", [])
         return d
+
+    def public(self) -> dict:
+        """Ce que voient Foundry et les pages : sans la file d'attente interne"""
+        d = self.lire()
+        return {"version": d["version"], "unites": d["unites"], "date_jeu": d.get("date_jeu", "")}
 
     def _ecrire(self, d: dict):
         # Écriture atomique : fichier temporaire puis remplacement (l'autre mode ne lit jamais un fichier à moitié écrit)
@@ -63,48 +82,120 @@ class Magasin:
             json.dump(d, f, ensure_ascii=False, indent=1)
         os.replace(tmp, self.chemin)
 
+    def _attente(self, d: dict, uid: str, changement: dict):
+        d["seq"] += 1
+        d["en_attente"].append({"seq": d["seq"], "id": uid, **changement})
+        del d["en_attente"][:-500]  # borne : la page n'a peut-être pas été ouverte depuis longtemps
+
     def modifier(self, uid: str, champs: dict) -> dict:
-        """Crée ou modifie une unité ; renvoie l'état complet. Lève ValueError si une valeur est invalide."""
+        """Crée ou modifie une unité (depuis Foundry ou la page de liaison) ; renvoie l'état public."""
         propre = valider(champs)
-        uid = str(uid).strip()
-        if not re.fullmatch(r"[a-z0-9_-]{1,40}", uid):
-            raise ValueError("identifiant d'unité invalide (a-z, 0-9, _ et -, 40 caractères au plus)")
+        uid = verifier_id(uid)
         with self.verrou:
             d = self._lire()
+            nouvelle = uid not in d["unites"]
             u = d["unites"].get(uid, {"nom": uid, "force": 0, "statut": "disponible"})
             u.update(propre)
             d["unites"][uid] = u
             d["version"] += 1
+            self._attente(d, uid, {"champs": dict(u) if nouvelle else propre})
             self._ecrire(d)
-            return d
+        return self.public()
 
     def supprimer(self, uid: str) -> dict:
         with self.verrou:
             d = self._lire()
             if d["unites"].pop(uid, None) is not None:
                 d["version"] += 1
+                self._attente(d, uid, {"supprime": True})
                 self._ecrire(d)
-            return d
+        return self.public()
+
+    def synchroniser(self, unites: dict, date_jeu: str = "") -> dict:
+        """La page « Rolling in the Deep » envoie toute sa réserve : elle remplace les unités, sauf les changements
+        locaux pas encore reportés dans la page, qui restent appliqués par-dessus."""
+        if not isinstance(unites, dict) or len(unites) > 300:
+            raise ValueError("unites : objet de 300 unités au plus")
+        propres = {verifier_id(uid): valider(u) for uid, u in unites.items()}
+        if date_jeu and not DATE.fullmatch(str(date_jeu)):
+            raise ValueError("date_jeu : AAAA-MM-JJ")
+        with self.verrou:
+            d = self._lire()
+            for c in d["en_attente"]:
+                if c.get("supprime"):
+                    propres.pop(c["id"], None)
+                else:
+                    propres[c["id"]] = {**propres.get(c["id"], {}), **c["champs"]}
+            change = propres != d["unites"] or bool(date_jeu and date_jeu != d.get("date_jeu"))
+            if change:
+                d["unites"] = propres
+                if date_jeu:
+                    d["date_jeu"] = date_jeu
+                d["version"] += 1
+                self._ecrire(d)
+            return {"version": d["version"], "change": change, "en_attente": len(d["en_attente"])}
+
+    def changements(self) -> dict:
+        with self.verrou:
+            return {"en_attente": self._lire()["en_attente"]}
+
+    def acquitter(self, jusqua: int) -> dict:
+        if isinstance(jusqua, bool) or not isinstance(jusqua, int):
+            raise ValueError("jusqua : entier")
+        with self.verrou:
+            d = self._lire()
+            avant = len(d["en_attente"])
+            d["en_attente"] = [c for c in d["en_attente"] if c["seq"] > jusqua]
+            if len(d["en_attente"]) != avant:
+                self._ecrire(d)
+            return {"en_attente": len(d["en_attente"])}
+
+
+def verifier_id(uid) -> str:
+    uid = str(uid).strip()
+    if not ID_UNITE.fullmatch(uid):
+        raise ValueError("identifiant d'unité invalide (lettres, chiffres, _ et -, 64 caractères au plus)")
+    return uid
+
+
+def entier(cle: str, v, mini: int, maxi: int) -> int:
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or int(v) != v or not mini <= v <= maxi:
+        raise ValueError(f"{cle} : entier de {mini} à {maxi}")
+    return int(v)
+
+
+TEXTES = {"groupe": 60, "lieu": 80, "arete": 60, "notes": 600, "mission": 300}
 
 
 def valider(champs: dict) -> dict:
+    if not isinstance(champs, dict):
+        raise ValueError("objet attendu")
     propre = {}
-    for cle, v in (champs or {}).items():
+    for cle, v in champs.items():
         if cle == "nom":
             v = str(v).strip()
-            if not v or len(v) > 80:
-                raise ValueError("nom vide ou trop long (80 caractères au plus)")
-        elif cle == "force":
-            if isinstance(v, bool) or not isinstance(v, (int, float)) or int(v) != v or not 0 <= v <= 10:
-                raise ValueError("force : entier de 0 à 10")
-            v = int(v)
+            if not v or len(v) > 120:
+                raise ValueError("nom vide ou trop long (120 caractères au plus)")
+        elif cle == "force":  # puissance de la Réserve : 0 (rang vide) à 4 (redoutable)
+            v = entier(cle, v, 0, 4)
+        elif cle == "membres":
+            v = entier(cle, v, 0, 999)
+        elif cle == "ordre":
+            v = entier(cle, v, 0, 99999)
+        elif cle == "retour":
+            v = str(v or "")
+            if v and not DATE.fullmatch(v):
+                raise ValueError("retour : date AAAA-MM-JJ ou vide")
+        elif cle == "affectation":
+            if v is not None and not (isinstance(v, dict) and len(json.dumps(v)) <= 300):
+                raise ValueError("affectation : objet court ou null")
         elif cle == "statut":
             if v not in STATUTS:
                 raise ValueError(f"statut : une valeur parmi {', '.join(STATUTS)}")
-        elif cle in ("groupe", "lieu"):
-            v = str(v).strip()
-            if len(v) > 80:
-                raise ValueError(f"{cle} : 80 caractères au plus")
+        elif cle in TEXTES:
+            v = str(v or "").strip()
+            if len(v) > TEXTES[cle]:
+                raise ValueError(f"{cle} : {TEXTES[cle]} caractères au plus")
         elif cle == "composition":
             if not isinstance(v, list) or len(v) > 12 or any(not isinstance(x, str) or not x.strip() or len(x) > 40 for x in v):
                 raise ValueError("composition : liste de 12 textes au plus, de 40 caractères au plus")
@@ -160,7 +251,7 @@ def fabriquer_gestionnaire(magasin: Magasin):
             if self.path == "/sante":
                 return self._repondre(200, {"ok": True, "serveur": "control-room", "version": VERSION_SERVEUR})
             if self.path == "/unites":
-                return self._repondre(200, magasin.lire())
+                return self._repondre(200, magasin.public())
             self._repondre(404, {"erreur": "inconnu"})
 
         def do_PUT(self):
@@ -198,21 +289,70 @@ def lancer_http(magasin: Magasin, port: int):
     serveur.serve_forever()
 
 
+# ---------------------------------------------------------------- Serveur pour Foundry, vu depuis le mode MCP
+
+def http_en_ligne(port: int = PORT_DEFAUT) -> bool:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/sante", timeout=1) as r:
+            return json.loads(r.read()).get("serveur") == "control-room"
+    except (OSError, ValueError):
+        return False
+
+
+def demarrer_http(port: int = PORT_DEFAUT) -> dict:
+    """Lance le serveur pour Foundry dans sa propre fenêtre (comme start-server.cmd), s'il ne tourne pas déjà."""
+    if http_en_ligne(port):
+        return {"en_ligne": True, "deja_lance": True, "port": port}
+    lanceur = Path(__file__).resolve().parent.parent / "start-server.cmd"
+    if os.name == "nt" and lanceur.exists():
+        # « start » ouvre une nouvelle fenêtre : le serveur n'hérite pas du canal MCP et survit à l'application Claude
+        subprocess.Popen(["cmd", "/c", "start", "", str(lanceur)], cwd=str(lanceur.parent),
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         creationflags=subprocess.CREATE_NO_WINDOW)
+    else:
+        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "http", "--port", str(port)],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    for _ in range(20):  # jusqu'à 5 s pour démarrer
+        time.sleep(0.25)
+        if http_en_ligne(port):
+            return {"en_ligne": True, "deja_lance": False, "port": port}
+    return {"en_ligne": False, "deja_lance": False, "port": port}
+
+
 # ---------------------------------------------------------------- MCP (artefact Claude)
 
 OUTILS = [
     {"name": "lister_unites", "description": "Liste les unités de la salle de contrôle (nom, force, statut) et la version des données.",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
      "annotations": {"readOnlyHint": True, "title": "Lister les unités"}},
-    {"name": "modifier_unite", "description": "Crée ou modifie une unité : nom, force (0 à 10), statut (disponible, en_mission, blessee, perdue), groupe, composition (liste de textes courts), lieu.",
+    {"name": "modifier_unite", "description": "Crée ou modifie une unité : nom, force (puissance 0 à 4), statut (disponible, engage, blesse, perdu, absent, vide), groupe, membres, arete, notes, mission, retour (AAAA-MM-JJ).",
      "inputSchema": {"type": "object", "required": ["id"], "additionalProperties": False, "properties": {
          "id": {"type": "string", "description": "Identifiant de l'unité (a-z, 0-9, _ et -)"},
-         "nom": {"type": "string"}, "force": {"type": "integer", "minimum": 0, "maximum": 10},
+         "nom": {"type": "string"}, "force": {"type": "integer", "minimum": 0, "maximum": 4},
+         "membres": {"type": "integer", "minimum": 0}, "arete": {"type": "string"}, "notes": {"type": "string"},
+         "mission": {"type": "string"}, "retour": {"type": "string"},
          "statut": {"type": "string", "enum": list(STATUTS)},
          "groupe": {"type": "string", "description": "Groupe d'affichage (Rédempteurs, Alliés du Conseil…)"},
          "composition": {"type": "array", "items": {"type": "string"}, "maxItems": 12, "description": "Membres ou caractéristiques"},
          "lieu": {"type": "string", "description": "Lieu ou affectation"}}},
      "annotations": {"readOnlyHint": False, "title": "Modifier une unité"}},
+    {"name": "synchroniser_reserve", "description": "Remplace les unités par la Réserve du Conseil de Rolling in the Deep (les changements faits dans Foundry et pas encore reportés restent appliqués).",
+     "inputSchema": {"type": "object", "required": ["unites"], "additionalProperties": False, "properties": {
+         "unites": {"type": "object", "description": "{ id: unité }"}, "date_jeu": {"type": "string", "description": "Date en jeu AAAA-MM-JJ"}}},
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "title": "Synchroniser la Réserve"}},
+    {"name": "recuperer_changements", "description": "Changements faits dans Foundry (ou la page de liaison) pas encore reportés dans Rolling in the Deep.",
+     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+     "annotations": {"readOnlyHint": True, "title": "Changements en attente"}},
+    {"name": "acquitter_changements", "description": "Retire de la file les changements reportés (numéro de séquence inclus).",
+     "inputSchema": {"type": "object", "required": ["jusqua"], "additionalProperties": False, "properties": {"jusqua": {"type": "integer"}}},
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "title": "Acquitter les changements"}},
+    {"name": "etat_serveur_foundry", "description": "Indique si le serveur pour Foundry (HTTP, 127.0.0.1:30010) est lancé.",
+     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+     "annotations": {"readOnlyHint": True, "title": "État du serveur pour Foundry"}},
+    {"name": "lancer_serveur_foundry", "description": "Lance le serveur pour Foundry dans sa propre fenêtre, s'il ne tourne pas déjà.",
+     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "title": "Lancer le serveur pour Foundry"}},
 ]
 
 
@@ -233,9 +373,19 @@ def traiter_mcp(magasin: Magasin, message: dict):
         elif methode == "tools/call":
             nom, args = params.get("name"), dict(params.get("arguments") or {})
             if nom == "lister_unites":
-                donnees = magasin.lire()
+                donnees = magasin.public()
+            elif nom == "synchroniser_reserve":
+                donnees = magasin.synchroniser(args.get("unites"), args.get("date_jeu") or "")
+            elif nom == "recuperer_changements":
+                donnees = magasin.changements()
+            elif nom == "acquitter_changements":
+                donnees = magasin.acquitter(args.get("jusqua"))
             elif nom == "modifier_unite":
                 donnees = magasin.modifier(args.pop("id", ""), args)
+            elif nom == "etat_serveur_foundry":
+                donnees = {"en_ligne": http_en_ligne(), "port": PORT_DEFAUT}
+            elif nom == "lancer_serveur_foundry":
+                donnees = demarrer_http()
             else:
                 return {"jsonrpc": "2.0", "id": ident, "error": {"code": -32602, "message": f"outil inconnu : {nom}"}}
             resultat = {"content": [{"type": "text", "text": json.dumps(donnees, ensure_ascii=False)}],

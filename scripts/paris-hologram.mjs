@@ -255,7 +255,7 @@ export function construireParis(THREE, d, { mode = "tech", verticales = false, m
     etiquettes.push({ texte: m.nom, position: new THREE.Vector3(...P(m.x, m.y, base, haut)), pied: new THREE.Vector3(...P(m.x, m.y, base, 0)), classe: "monument" });
   }
   for ( const a of d.entete.arrondissements ) {
-    etiquettes.push({ texte: Number(a.numero) === 1 ? "1er" : `${Number(a.numero)}e`, position: new THREE.Vector3(...P(a.centre[0], a.centre[1], sol(a.centre[0], a.centre[1]), 20)), classe: "arrondissement" });
+    etiquettes.push({ texte: Number(a.numero) === 1 ? "1er" : `${Number(a.numero)}e`, position: new THREE.Vector3(...P(a.centre[0], a.centre[1], sol(a.centre[0], a.centre[1]), 20)), pied: new THREE.Vector3(...P(a.centre[0], a.centre[1], sol(a.centre[0], a.centre[1]), 0)), classe: "arrondissement" });
   }
   return { groupe, etiquettes, segments, triangles, sol, masquage, animer };
 }
