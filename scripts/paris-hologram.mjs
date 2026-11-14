@@ -2,6 +2,8 @@
  * Moteur commun de l'hologramme de Paris (Foundry et page d'aperçu) : lecture du fichier PRS2 et construction
  * de la scène Three.js. Unités de scène : 1 = 1 km ; relief exagéré ×VR, hauteurs des bâtiments ×VB.
  */
+import { MONUMENTS_LIEUX, MODELES_LIEUX } from "./monuments-lieux.mjs";
+
 export const VR = 4, VB = 2;
 const K = 0.001;
 
@@ -83,11 +85,30 @@ export function construireParis(THREE, d, { mode = "tech", verticales = false, m
   }
 
   // Contours extrudés (bâtiments, monuments) : toit à sol + hauteur, arêtes verticales en option
+  // Contours IGN remplacés par un modèle détaillé (centre du contour dans le rayon du modèle) : ni traits ni faces
+  function exclusions(c) {
+    const ex = new Uint8Array(c.nb), mods = MONUMENTS_LIEUX.filter(m => m.rayon);
+    let p = 0;
+    for ( let i = 0; i < c.nb; i++ ) {
+      const n = c.longueurs[i]; let sx = 0, sy = 0;
+      for ( let j = 0; j < n; j++ ) { sx += c.coords[(p + j) * 2]; sy += c.coords[(p + j) * 2 + 1]; }
+      const x = sx / n, y = sy / n;
+      ex[i] = mods.some(m => (x - m.x) ** 2 + (y - m.y) ** 2 <= m.rayon ** 2) ? 1 : 0;
+      p += n;
+    }
+    return ex;
+  }
+
+  const exclusPar = new Map();  // calque → contours remplacés par un modèle (aussi ignorés par batimentProche)
   function extrudes(c, couleurs, avecVerticales, opacite) {
-    let segs = 0; for ( let i = 0; i < c.nb; i++ ) segs += c.longueurs[i] * (avecVerticales ? 2 : 1);
+    const exclus = exclusions(c); exclusPar.set(c, exclus);
+    let segs = 0; for ( let i = 0; i < c.nb; i++ ) if ( !exclus[i] ) segs += c.longueurs[i] * (avecVerticales ? 2 : 1);
     const pos = new Float32Array(segs * 6), col = new Float32Array(segs * 6);
+    const debuts = new Uint32Array(c.nb + 1);  // début de chaque contour dans col (recoloration des territoires)
     let k = 0, p = 0;
     for ( let i = 0; i < c.nb; i++ ) {
+      debuts[i] = k;
+      if ( exclus[i] ) { p += c.longueurs[i]; continue; }
       const n = c.longueurs[i], hh = c.hauteurs[i], t = Math.min(1, hh / 45), z0 = baseContour(c, p, n);
       const [r, gg, b] = couleurs(t);
       for ( let j = 0; j < n; j++ ) {
@@ -101,14 +122,18 @@ export function construireParis(THREE, d, { mode = "tech", verticales = false, m
       }
       p += n;
     }
-    if ( masquage ) masques(c);
-    return lignes(pos, col, opacite);
+    debuts[c.nb] = k;
+    if ( masquage ) masques(c, exclus);
+    const l = lignes(pos, col, opacite);
+    l.userData = { debuts, origine: col.slice(), verticales: avecVerticales };
+    return l;
   }
 
   // Toits (triangulés) et murs des contours extrudés
-  function masques(c) {
+  function masques(c, exclus) {
     const pos = [], idx = []; let p = 0, v = 0;
     for ( let i = 0; i < c.nb; i++ ) {
+      if ( exclus?.[i] ) { p += c.longueurs[i]; continue; }
       const n = c.longueurs[i], hh = c.hauteurs[i], z0 = baseContour(c, p, n);
       const contour = [];
       for ( let j = 0; j < n; j++ ) contour.push(new THREE.Vector2(c.coords[(p + j) * 2], c.coords[(p + j) * 2 + 1]));
@@ -122,7 +147,7 @@ export function construireParis(THREE, d, { mode = "tech", verticales = false, m
     faces(new Float32Array(pos), v > 65535 ? new Uint32Array(idx) : new Uint16Array(idx));
   }
   const degrade = t => pal.bas.map((v, q) => v + (pal.haut[q] - v) * t);
-  extrudes(d.calques.batiments, degrade, verticales, 0.75);
+  const traitsBatiments = extrudes(d.calques.batiments, degrade, verticales, 0.75);
   extrudes(d.calques.monuments, () => pal.mon, true, 0.95);
 
   // Contours posés sur le relief (eau, arrondissements)
@@ -254,10 +279,154 @@ export function construireParis(THREE, d, { mode = "tech", verticales = false, m
     const haut = { eiffel: 340, "notre-dame": 110, pyramide: 50, "sacre-coeur": 110 }[m.modele] ?? 80;
     etiquettes.push({ texte: m.nom, position: new THREE.Vector3(...P(m.x, m.y, base, haut)), pied: new THREE.Vector3(...P(m.x, m.y, base, 0)), classe: "monument" });
   }
+  // Modèles détaillés des lieux de la campagne qui sont de vrais bâtiments (sans étiquette : le repère du lieu la porte)
+  for ( const m of MONUMENTS_LIEUX ) {
+    const base = sol(m.x, m.y), pts = MODELES_LIEUX[m.modele](m.x, m.y, m.angle ?? 0);
+    lignes(pts.flatMap(([x, y, z]) => P(x, y, base, z)), null, 0.95, mode === "tech" ? 0xfff2c0 : 0xffe0ff);
+  }
   for ( const a of d.entete.arrondissements ) {
     etiquettes.push({ texte: Number(a.numero) === 1 ? "1er" : `${Number(a.numero)}e`, position: new THREE.Vector3(...P(a.centre[0], a.centre[1], sol(a.centre[0], a.centre[1]), 20)), pied: new THREE.Vector3(...P(a.centre[0], a.centre[1], sol(a.centre[0], a.centre[1]), 0)), classe: "arrondissement" });
   }
-  return { groupe, etiquettes, segments, triangles, sol, masquage, animer };
+  /**
+   * Bâtiment (ou monument) le plus proche d'un point, par le centre de son contour.
+   * @param {number} x  m depuis le centre des fichiers
+   * @param {number} y
+   * @param {number} rayon  distance maximale (m)
+   * @returns {{calque: string, i: number, distance: number}|null}
+   */
+  const batimentProche = (x, y, rayon) => {
+    // Sur un modèle détaillé, pas de surbrillance d'un volume IGN (le repère prend alors une balise au sol)
+    if ( MONUMENTS_LIEUX.some(m => m.rayon && (x - m.x) ** 2 + (y - m.y) ** 2 <= (m.rayon + rayon) ** 2) ) return null;
+    let meilleur = null;
+    for ( const nom of ["monuments", "batiments"] ) {
+      const ix = indexContours(d, nom), r2 = rayon * rayon, ex = exclusPar.get(d.calques[nom]);
+      for ( let i = 0; i < ix.nb; i++ ) {
+        if ( ex?.[i] ) continue;
+        const dx = ix.cx[i] - x, dy = ix.cy[i] - y, d2 = dx * dx + dy * dy;
+        if ( (d2 <= r2) && (!meilleur || d2 < meilleur.d2) ) meilleur = { calque: nom, i, d2 };
+      }
+    }
+    return meilleur && { calque: meilleur.calque, i: meilleur.i, distance: Math.sqrt(meilleur.d2) };
+  };
+  /** Arêtes d'un bâtiment (toit et verticales), en positions de scène : Float32Array de segments */
+  const contourBatiment = (nom, i) => {
+    const c = d.calques[nom], ix = indexContours(d, nom), p = ix.debut[i], n = c.longueurs[i], hh = c.hauteurs[i];
+    const z0 = baseContour(c, p, n), pos = [];
+    for ( let j = 0; j < n; j++ ) {
+      const a = (p + j) * 2, b = (p + (j + 1) % n) * 2, xa = c.coords[a], ya = c.coords[a + 1];
+      pos.push(...P(xa, ya, z0, hh), ...P(c.coords[b], c.coords[b + 1], z0, hh));
+      pos.push(...P(xa, ya, sol(xa, ya) - ENFONCE), ...P(xa, ya, z0, hh));
+    }
+    return { positions: new Float32Array(pos), sommet: new THREE.Vector3(...P(ix.cx[i], ix.cy[i], z0, hh)) };
+  };
+  /**
+   * Surfaces des arrondissements posées sur le relief (calque des territoires) : triangles redécoupés jusqu'à
+   * 120 m de côté pour suivre le relief, contour en segments. Coordonnées de texture en mètres / 60 (hachures).
+   * @returns {Array<{numero: number, triangles: Float32Array, uv: Float32Array, bord: Float32Array}>}
+   */
+  const zonesArrondissements = () => {
+    const c = d.calques.arrondissements, zones = [], MAX = 120, DESSUS = 3;  // m au-dessus du sol
+    let p = 0;
+    for ( let i = 0; i < c.nb; i++ ) {
+      const n = c.longueurs[i], contour = [];
+      for ( let j = 0; j < n; j++ ) contour.push(new THREE.Vector2(c.coords[(p + j) * 2], c.coords[(p + j) * 2 + 1]));
+      const tri = [], uv = [], bord = [];
+      const decouper = (a, b, e) => {
+        const ab = a.distanceTo(b), be = b.distanceTo(e), ea = e.distanceTo(a), m = Math.max(ab, be, ea);
+        if ( m <= MAX ) {
+          for ( const q of [a, b, e] ) { tri.push(...P(q.x, q.y, sol(q.x, q.y) + DESSUS)); uv.push(q.x / 60, q.y / 60); }
+          return;
+        }
+        if ( m === ab ) { const mm = a.clone().lerp(b, 0.5); decouper(a, mm, e); decouper(mm, b, e); }
+        else if ( m === be ) { const mm = b.clone().lerp(e, 0.5); decouper(a, b, mm); decouper(a, mm, e); }
+        else { const mm = e.clone().lerp(a, 0.5); decouper(a, b, mm); decouper(mm, b, e); }
+      };
+      for ( const [a, b, e] of THREE.ShapeUtils.triangulateShape(contour, []) ) decouper(contour[a], contour[b], contour[e]);
+      for ( let j = 0; j < n; j++ ) {
+        const a = contour[j], b = contour[(j + 1) % n], pas = Math.max(1, Math.ceil(a.distanceTo(b) / 60));
+        for ( let k = 0; k < pas; k++ ) {
+          const u = a.clone().lerp(b, k / pas), v = a.clone().lerp(b, (k + 1) / pas);
+          bord.push(...P(u.x, u.y, sol(u.x, u.y) + DESSUS + 1), ...P(v.x, v.y, sol(v.x, v.y) + DESSUS + 1));
+        }
+      }
+      zones.push({ numero: Number(d.entete.arrondissements[i]?.numero), triangles: new Float32Array(tri), uv: new Float32Array(uv), bord: new Float32Array(bord) });
+      p += n;
+    }
+    return zones;
+  };
+  /**
+   * Teinte le fil de fer des bâtiments par arrondissement (calque des territoires), en gardant le dégradé selon la
+   * hauteur : sombre au pied, la couleur pâlie vers le blanc au sommet des tours.
+   * @param {Map<number, number[]>|null} couleurs  numéro d'arrondissement → [r, g, b] ; null ou absent = couleur d'origine
+   */
+  const teinterBatiments = couleurs => {
+    const { debuts, origine, verticales: v } = traitsBatiments.userData;
+    const attr = traitsBatiments.geometry.getAttribute("color"), col = attr.array;
+    col.set(origine);
+    if ( couleurs?.size ) {
+      const c = d.calques.batiments, arr = arrondissementDesBatiments(d);
+      for ( let i = 0; i < c.nb; i++ ) {
+        const C = couleurs.get(arr[i]); if ( !C ) continue;
+        const t = Math.min(1, c.hauteurs[i] / 45), f = 0.45 + 0.55 * t, w = 0.3 * t;
+        const r = (C[0] * (1 - w) + w) * f, g2 = (C[1] * (1 - w) + w) * f, b = (C[2] * (1 - w) + w) * f;
+        for ( let k = debuts[i]; k < debuts[i + 1]; k += v ? 12 : 6 ) {
+          col.set([r, g2, b, r, g2, b], k);
+          if ( v ) col.set([r * 0.3, g2 * 0.3, b * 0.3, r, g2, b], k + 6);
+        }
+      }
+    }
+    attr.needsUpdate = true;
+  };
+  return { groupe, etiquettes, segments, triangles, sol, masquage, animer, batimentProche, contourBatiment, zonesArrondissements, teinterBatiments };
+}
+
+/** Index des contours d'un calque : début de chaque contour et centre (calculé une fois par fichier chargé) */
+const INDEX = new WeakMap();
+function indexContours(d, nom) {
+  let parFichier = INDEX.get(d);
+  if ( !parFichier ) { parFichier = {}; INDEX.set(d, parFichier); }
+  if ( parFichier[nom] ) return parFichier[nom];
+  const c = d.calques[nom], nb = c.nb;
+  const debut = new Uint32Array(nb), cx = new Float32Array(nb), cy = new Float32Array(nb);
+  let p = 0;
+  for ( let i = 0; i < nb; i++ ) {
+    const n = c.longueurs[i]; let sx = 0, sy = 0;
+    for ( let j = 0; j < n; j++ ) { sx += c.coords[(p + j) * 2]; sy += c.coords[(p + j) * 2 + 1]; }
+    debut[i] = p; cx[i] = sx / n; cy[i] = sy / n; p += n;
+  }
+  return (parFichier[nom] = { nb, debut, cx, cy });
+}
+
+/**
+ * Arrondissement de chaque bâtiment (numéro, 0 si hors de Paris), par le centre de son contour : calculé une fois par
+ * fichier chargé (boîte englobante puis point dans le polygone).
+ */
+const ARR_BATIMENTS = new WeakMap();
+function arrondissementDesBatiments(d) {
+  if ( ARR_BATIMENTS.has(d) ) return ARR_BATIMENTS.get(d);
+  const c = d.calques.arrondissements, polys = [];
+  let p = 0;
+  for ( let i = 0; i < c.nb; i++ ) {
+    const n = c.longueurs[i], xs = new Float32Array(n), ys = new Float32Array(n);
+    for ( let j = 0; j < n; j++ ) { xs[j] = c.coords[(p + j) * 2]; ys[j] = c.coords[(p + j) * 2 + 1]; }
+    polys.push({ numero: Number(d.entete.arrondissements[i]?.numero) || 0, xs, ys,
+      x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) });
+    p += n;
+  }
+  const dedans = (q, x, y) => {
+    let r = false;
+    for ( let i = 0, j = q.xs.length - 1; i < q.xs.length; j = i++ ) {
+      if ( ((q.ys[i] > y) !== (q.ys[j] > y)) && (x < (q.xs[j] - q.xs[i]) * (y - q.ys[i]) / (q.ys[j] - q.ys[i]) + q.xs[i]) ) r = !r;
+    }
+    return r;
+  };
+  const ix = indexContours(d, "batiments"), res = new Uint8Array(ix.nb);
+  for ( let i = 0; i < ix.nb; i++ ) {
+    const x = ix.cx[i], y = ix.cy[i];
+    for ( const q of polys ) if ( x >= q.x0 && x <= q.x1 && y >= q.y0 && y <= q.y1 && dedans(q, x, y) ) { res[i] = q.numero; break; }
+  }
+  ARR_BATIMENTS.set(d, res);
+  return res;
 }
 
 /* -------------------------------------------- */

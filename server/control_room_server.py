@@ -1,7 +1,8 @@
 """
 Mini-serveur de la salle de contrôle (preuve de concept).
 
-Une seule source de vérité pour les unités (nom, force, statut), partagée par :
+Une seule source de vérité pour les unités (nom, force, statut) et pour la carte de Paris (lieux, factions,
+territoires, tirés de l'artefact « Paris occulte »), partagée par :
 - Foundry : API HTTP sur 127.0.0.1 (le module « Salle de contrôle » la lit et l'écrit) ;
 - un artefact Claude : serveur MCP local (mode « mcp », lancé par l'application Claude).
 Les deux modes lisent et écrivent le même fichier JSON. Python 3.10+, bibliothèque standard seulement.
@@ -24,7 +25,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION_SERVEUR = "0.4.0"
+VERSION_SERVEUR = "0.5.0"
 PORT_DEFAUT = 30010
 # Mêmes statuts que la Réserve du Conseil de « Rolling in the Deep »
 STATUTS = ("disponible", "engage", "blesse", "perdu", "absent", "vide")
@@ -32,6 +33,11 @@ ID_UNITE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 # Seules les pages servies depuis la machine elle-même peuvent appeler l'API (Foundry sur localhost)
 ORIGINE_LOCALE = re.compile(r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$")
+# Carte : types de lieux de « Paris occulte », couleurs, bornes de Paris (avec une marge : La Défense en fait partie)
+TYPES_LIEU = ("siege", "node", "refuge", "acces", "porte", "usine", "evenement", "autre")
+COULEUR = re.compile(r"#[0-9a-fA-F]{6}")
+BORNES = {"lon": (2.15, 2.55), "lat": (48.78, 48.95)}
+TAILLE_CARTE = 600_000  # octets au plus pour PUT /carte
 
 
 def chemin_defaut() -> Path:
@@ -135,6 +141,27 @@ class Magasin:
                 self._ecrire(d)
             return {"version": d["version"], "change": change, "en_attente": len(d["en_attente"])}
 
+    def carte(self) -> dict:
+        """La carte de Paris : { version, maj, lieux, factions, arrondissements, quartiers } (vide au départ)"""
+        d = self.lire()
+        c = d.get("carte") or {}
+        return {"version": c.get("version", 0), "maj": c.get("maj", ""),
+                **{k: c.get(k, {}) for k in ("lieux", "factions", "arrondissements", "quartiers")}}
+
+    def remplacer_carte(self, carte) -> dict:
+        """« Paris occulte » est la référence : la carte envoyée remplace entièrement la précédente."""
+        propre = valider_carte(carte)
+        with self.verrou:
+            d = self._lire()
+            avant = d.get("carte") or {}
+            change = any(avant.get(k, {}) != propre[k] for k in propre)
+            version = avant.get("version", 0)
+            if change:
+                version += 1
+                d["carte"] = {"version": version, "maj": time.strftime("%Y-%m-%dT%H:%M:%S"), **propre}
+                self._ecrire(d)
+            return {"version": version, "change": change, "lieux": len(propre["lieux"])}
+
     def changements(self) -> dict:
         with self.verrou:
             return {"en_attente": self._lire()["en_attente"]}
@@ -165,6 +192,92 @@ def entier(cle: str, v, mini: int, maxi: int) -> int:
 
 
 TEXTES = {"groupe": 60, "lieu": 80, "arete": 60, "notes": 600, "mission": 300}
+
+
+def texte(cle: str, v, maxi: int, vide: bool = True) -> str:
+    v = "" if v is None else v
+    if not isinstance(v, str) or len(v.strip()) > maxi or (not vide and not v.strip()):
+        raise ValueError(f"{cle} : texte de {maxi} caractères au plus" + ("" if vide else ", non vide"))
+    return v.strip()
+
+
+def booleen(cle: str, v) -> bool:
+    if not isinstance(v, bool):
+        raise ValueError(f"{cle} : vrai ou faux")
+    return v
+
+
+def faction_id(cle: str, v) -> str:
+    v = texte(cle, v, 64)
+    if v and not ID_UNITE.fullmatch(v):
+        raise ValueError(f"{cle} : identifiant de faction invalide")
+    return v
+
+
+def champs_connus(cle: str, objet, autorises: set) -> dict:
+    if not isinstance(objet, dict):
+        raise ValueError(f"{cle} : objet attendu")
+    inconnus = set(objet) - autorises
+    if inconnus:
+        raise ValueError(f"{cle} : champ inconnu ({', '.join(sorted(inconnus))})")
+    return objet
+
+
+def valider_carte(carte) -> dict:
+    """Vérifie une carte complète ; renvoie une copie propre ou lève ValueError."""
+    carte = champs_connus("carte", carte, {"lieux", "factions", "arrondissements", "quartiers", "version", "maj"})
+    lieux, factions, arrs, quartiers = (carte.get(k, {}) for k in ("lieux", "factions", "arrondissements", "quartiers"))
+    for cle, bloc, maxi in (("lieux", lieux, 500), ("factions", factions, 100), ("arrondissements", arrs, 20), ("quartiers", quartiers, 80)):
+        if not isinstance(bloc, dict) or len(bloc) > maxi:
+            raise ValueError(f"{cle} : objet de {maxi} éléments au plus")
+    propre = {"lieux": {}, "factions": {}, "arrondissements": {}, "quartiers": {}}
+    for lid, l in lieux.items():
+        lid = verifier_id(lid)
+        champs_connus(f"lieu {lid}", l, {"nom", "type", "faction", "lon", "lat", "arr", "texte", "texte_joueurs", "pj"})
+        if l.get("type") not in TYPES_LIEU:
+            raise ValueError(f"lieu {lid} : type parmi {', '.join(TYPES_LIEU)}")
+        coords = {}
+        for k in ("lon", "lat"):
+            v = l.get(k)
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not BORNES[k][0] <= v <= BORNES[k][1]:
+                raise ValueError(f"lieu {lid} : {k} hors de Paris")
+            coords[k] = float(v)
+        arr = l.get("arr", 0)
+        propre["lieux"][lid] = {
+            "nom": texte(f"lieu {lid} : nom", l.get("nom"), 120, vide=False), "type": l["type"],
+            "faction": faction_id(f"lieu {lid} : faction", l.get("faction", "")), **coords,
+            "arr": entier(f"lieu {lid} : arr", arr, 0, 20) if arr else 0,
+            "texte": texte(f"lieu {lid} : texte", l.get("texte", ""), 3000),
+            "texte_joueurs": texte(f"lieu {lid} : texte_joueurs", l.get("texte_joueurs", ""), 3000),
+            "pj": booleen(f"lieu {lid} : pj", l.get("pj", False))}
+    for fid, f in factions.items():
+        fid = verifier_id(fid)
+        champs_connus(f"faction {fid}", f, {"nom", "couleur", "groupe", "motif", "ordre"})
+        if not COULEUR.fullmatch(str(f.get("couleur", ""))):
+            raise ValueError(f"faction {fid} : couleur #rrggbb")
+        propre["factions"][fid] = {"nom": texte(f"faction {fid} : nom", f.get("nom"), 80, vide=False), "couleur": f["couleur"].lower(),
+                                   "groupe": texte(f"faction {fid} : groupe", f.get("groupe", ""), 40),
+                                   "motif": texte(f"faction {fid} : motif", f.get("motif", ""), 20),
+                                   "ordre": entier(f"faction {fid} : ordre", f.get("ordre", 0), 0, 99999)}
+    for n, a in arrs.items():
+        if not (str(n).isdigit() and 1 <= int(n) <= 20):
+            raise ValueError(f"arrondissement {n} : numéro de 1 à 20")
+        champs_connus(f"arrondissement {n}", a, {"controle", "pj", "titre", "resume"})
+        propre["arrondissements"][str(int(n))] = {
+            "controle": faction_id(f"arrondissement {n} : controle", a.get("controle", "")),
+            "pj": booleen(f"arrondissement {n} : pj", a.get("pj", False)),
+            "titre": texte(f"arrondissement {n} : titre", a.get("titre", ""), 120),
+            "resume": texte(f"arrondissement {n} : resume", a.get("resume", ""), 3000)}
+    for code, q in quartiers.items():
+        if not (str(code).isdigit() and 1 <= int(code) <= 80):
+            raise ValueError(f"quartier {code} : numéro de 1 à 80")
+        champs_connus(f"quartier {code}", q, {"ar", "nom", "controle", "pj"})
+        propre["quartiers"][str(int(code))] = {
+            "ar": entier(f"quartier {code} : ar", q.get("ar"), 1, 20),
+            "nom": texte(f"quartier {code} : nom", q.get("nom", ""), 80),
+            "controle": faction_id(f"quartier {code} : controle", q.get("controle", "")),
+            "pj": booleen(f"quartier {code} : pj", q.get("pj", False))}
+    return propre
 
 
 def valider(champs: dict) -> dict:
@@ -252,11 +365,21 @@ def fabriquer_gestionnaire(magasin: Magasin):
                 return self._repondre(200, {"ok": True, "serveur": "control-room", "version": VERSION_SERVEUR})
             if self.path == "/unites":
                 return self._repondre(200, magasin.public())
+            if self.path == "/carte":
+                return self._repondre(200, magasin.carte())
             self._repondre(404, {"erreur": "inconnu"})
 
         def do_PUT(self):
             if self._origine_refusee():
                 return
+            if self.path == "/carte":
+                try:
+                    taille = int(self.headers.get("Content-Length") or 0)
+                    if taille > TAILLE_CARTE:
+                        raise ValueError("carte trop grande")
+                    return self._repondre(200, magasin.remplacer_carte(json.loads(self.rfile.read(taille) or b"{}")))
+                except ValueError as e:
+                    return self._repondre(400, {"erreur": str(e)})
             m = re.fullmatch(r"/unites/([^/]+)", self.path)
             if not m:
                 return self._repondre(404, {"erreur": "inconnu"})
@@ -353,6 +476,13 @@ OUTILS = [
     {"name": "lancer_serveur_foundry", "description": "Lance le serveur pour Foundry dans sa propre fenêtre, s'il ne tourne pas déjà.",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
      "annotations": {"readOnlyHint": False, "destructiveHint": False, "title": "Lancer le serveur pour Foundry"}},
+    {"name": "lire_carte", "description": "Carte de Paris de la table de contrôle : lieux, factions, arrondissements, quartiers (tirés de « Paris occulte »).",
+     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+     "annotations": {"readOnlyHint": True, "title": "Lire la carte"}},
+    {"name": "synchroniser_carte", "description": "Remplace la carte de Paris par celle de « Paris occulte » : lieux { id: { nom, type, faction, lon, lat, arr, texte, texte_joueurs, pj } }, factions { id: { nom, couleur, groupe, motif, ordre } }, arrondissements { n: { controle, pj, titre, resume } }, quartiers { code: { ar, nom, controle, pj } }.",
+     "inputSchema": {"type": "object", "required": ["lieux"], "additionalProperties": False, "properties": {
+         "lieux": {"type": "object"}, "factions": {"type": "object"}, "arrondissements": {"type": "object"}, "quartiers": {"type": "object"}}},
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "title": "Synchroniser la carte"}},
 ]
 
 
@@ -386,6 +516,10 @@ def traiter_mcp(magasin: Magasin, message: dict):
                 donnees = {"en_ligne": http_en_ligne(), "port": PORT_DEFAUT}
             elif nom == "lancer_serveur_foundry":
                 donnees = demarrer_http()
+            elif nom == "lire_carte":
+                donnees = magasin.carte()
+            elif nom == "synchroniser_carte":
+                donnees = magasin.remplacer_carte(args)
             else:
                 return {"jsonrpc": "2.0", "id": ident, "error": {"code": -32602, "message": f"outil inconnu : {nom}"}}
             resultat = {"content": [{"type": "text", "text": json.dumps(donnees, ensure_ascii=False)}],

@@ -8,6 +8,8 @@
  * - Aucune erreur n'est levée hors du module : chaque appel réseau est borné dans le temps et rattrapé.
  */
 import { Hologramme } from "./hologram.mjs";
+import { ecouterPings } from "./ping.mjs";
+import { publierCarte, registerCarteSettings } from "./carte.mjs";
 
 const ID = "wod-control-room";
 const DELAI_APPEL = 2500;
@@ -84,6 +86,9 @@ async function verifier() {
   if ( r.ok && donneesValides(r.corps) ) {
     changerEtat("connecte");
     await publier("connecte", r.corps);
+    // Carte de Paris (« Paris occulte ») : ancien serveur sans carte → 404, sans conséquence
+    const c = await appel("GET", "/carte");
+    if ( c.ok ) await publierCarte(c.corps);
   } else {
     changerEtat("hors_ligne");
     await publier("hors_ligne");
@@ -185,6 +190,7 @@ class SalleDeControle extends HandlebarsApplicationMixin(ApplicationV2) {
 /* -------------------------------------------- */
 
 Hooks.once("init", () => {
+  registerCarteSettings();
   game.settings.register(ID, "port", {
     name: "SALLE.Port", hint: "SALLE.PortAide", scope: "world", config: true, restricted: true,
     type: new foundry.data.fields.NumberField({ required: true, nullable: false, integer: true, min: 1024, max: 65535, initial: 30010 }),
@@ -206,6 +212,7 @@ Hooks.once("init", () => {
 });
 
 Hooks.once("ready", () => {
+  ecouterPings();
   game.modules.get(ID).api = { ouvrir: () => SalleDeControle.ouvrir(), hologramme: () => new Hologramme().render({ force: true }) };
   if ( estMjActif() ) verifier();
 });

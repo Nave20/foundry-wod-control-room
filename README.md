@@ -29,6 +29,43 @@ Une fenêtre « Salle de contrôle » (bouton en bas de l'onglet des acteurs) li
 - **Un artefact Claude** peut lire et modifier les mêmes données par le même serveur (mode MCP). Une modification d'un
   côté apparaît de l'autre.
 
+### Lieux de « Paris occulte » sur l'hologramme
+
+Le mini-serveur garde aussi la carte de Paris tirée de l'artefact « Paris occulte » : lieux, factions, arrondissements
+et quartiers. « Paris occulte » reste la référence ; la carte envoyée remplace la précédente.
+
+- **Envoyer la carte** : exporter la base de l'artefact (un fichier JSON par document dans `lieux/`, `factions/`,
+  `arrondissements/`, `quartiers/`), puis `python tools/envoyer_carte.py <dossier exporté>`. Un artefact peut aussi
+  appeler l'outil MCP `synchroniser_carte`.
+- **Foundry** : le MJ actif relit la carte avec les unités. Il garde la carte complète sur son PC ; les joueurs reçoivent
+  seulement les lieux révélés, avec le texte prévu pour eux.
+- **Hologramme** : chaque lieu allume le vrai bâtiment le plus proche (à la couleur de sa faction), ou une balise au sol
+  s'il n'y en a pas à moins de 40 m. Le Royaume du Conseil flotte en anneau doré au-dessus du 18e, relié à ses portes.
+  Un clic sur une étiquette ouvre la fiche du lieu ; le bouton **Lieux** ouvre la liste, avec recherche et filtres.
+  Le MJ voit aussi les lieux non révélés, en pointillés.
+
+### Territoires par arrondissement
+
+Le bouton **Territoires** de l'hologramme teinte chaque arrondissement selon la faction qui le tient (éteint par défaut,
+pour garder la carte bleue). Un clic de plus passe du mode **simplifié** (rouge vampires, bleu mages, vert garous, gris
+Technocratie, hachures pour les zones disputées) au mode **détaillé** (couleur de chaque faction), puis l'éteint.
+Les bâtiments ne sont pas teintés : un aplat au sol, un liseré et un rideau lumineux bas le long des limites. Une
+légende s'affiche, et la bulle de chaque pastille d'arrondissement donne sa faction.
+
+Faction d'un arrondissement : celle que « Paris occulte » lui donne ; sinon la faction majoritaire de ses quartiers ;
+à égalité, ou si un quartier est disputé, il est disputé. Les joueurs voient le résultat de la même règle appliquée aux
+seuls arrondissements et quartiers révélés (`scripts/territoires.mjs`, testé).
+
+### Ping lumineux sur l'hologramme
+
+Dans la fenêtre « Hologramme de Paris », **Alt + clic** sur la carte (ou bouton **Ping**, puis clic) fait monter une
+colonne de lumière à cet endroit, avec une onde au sol et le nom du joueur à sa couleur. Tous ceux qui ont l'hologramme
+ouvert la voient pendant 10 secondes. Le MJ peut faire **Alt + Maj + clic** pour centrer en plus la vue de tous sur
+son ping.
+
+Le ping passe par le socket de Foundry (pas par le mini-serveur) : il marche même serveur éteint. Un ping par seconde
+et par joueur au plus ; un joueur ne peut pas déplacer la vue des autres.
+
 ## Installer et lancer le mini-serveur
 
 Il faut **Python 3.10 ou plus récent** ; aucune autre installation.
@@ -69,4 +106,10 @@ l'artefact, dans l'application Claude, peut joindre ce serveur.
 
 ```
 python -m unittest server/test_server.py
+```
+
+Conversion longitude, latitude ↔ Lambert-93 et calcul des territoires :
+
+```
+node --test tests/*.test.mjs
 ```

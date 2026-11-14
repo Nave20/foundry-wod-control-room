@@ -1,9 +1,14 @@
 /**
  * Fenêtre « Hologramme de Paris » : bâtiments réels (IGN BD TOPO) posés sur le relief, monuments en haute définition,
- * unités du mini-serveur en direct. Three.js est chargé depuis un CDN pour l'instant (à embarquer dans le module).
+ * unités du mini-serveur en direct, lieux de « Paris occulte » (repères, royaume du Conseil), pings. Three.js est chargé depuis un CDN pour l'instant (à embarquer dans le module).
  */
-import { lireParis, construireParis, PALETTES } from "./paris-hologram.mjs";
+import { lireParis, construireParis, PALETTES, VR } from "./paris-hologram.mjs";
 import { PanneauUnites } from "./units-panel.mjs";
+import { versCarte, depuisCarte } from "./geo.mjs";
+import { envoyerPing } from "./ping.mjs";
+import { CalqueReperes } from "./reperes.mjs";
+import { carteCourante, CROCHET } from "./carte.mjs";
+import { CalqueTerritoires, MODES, modeSuivant } from "./territoires-calque.mjs";
 
 const ID = "wod-control-room";
 const THREE_URL = "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js";
@@ -43,13 +48,10 @@ const HUD = `<div class="holo-hud" aria-hidden="true"><div class="balayage"></di
   <div class="pied"><div class="hud-serveur"><span class="pastille"></span><span class="texte"></span></div>
     <div style="text-align:center">VISÉE <span class="chaud hud-visee"></span><div class="sous hud-cap"></div></div><div></div></div></div>`;
 
-/** Mètres Lambert-93 (relatifs au centre du fichier) → latitude, longitude approchées (précision de l'ordre de la dizaine de mètres dans Paris) */
-function latLon(x, y) {
-  // Points d'appui : tour Eiffel et Notre-Dame
-  const lon = 2.2945 + (x - (648219 - 652000)) * (2.3499 - 2.2945) / ((652297 - 648219));
-  const lat = 48.8584 + (y - (6862257 - 6862000)) * (48.8530 - 48.8584) / ((6861640 - 6862257));
-  return [lat, lon];
-}
+/** Durée de vie d'un ping (ms) ; il s'éteint pendant les 2 dernières secondes */
+const DUREE_PING = 10000;
+/** Un clic : moins de 5 px de déplacement et moins d'une demi-seconde (au-delà, c'est une rotation de la vue) */
+const CLIC = { px: 5, ms: 500 };
 
 export class Hologramme extends ApplicationV2 {
   static DEFAULT_OPTIONS = {
@@ -77,6 +79,119 @@ export class Hologramme extends ApplicationV2 {
   /** Mesure de fluidité en cours (mode automatique, premier lancement sur ce PC) */
   #mesure = null;
 
+  /** Pings en cours : { debut, groupe, onde, coeur, halo, etiquette, ancre } */
+  #pings = [];
+  /** Calque des lieux de « Paris occulte » (scripts/reperes.mjs) et crochet de mise à jour de la carte */
+  #reperes = null;
+  #crochetCarte = null;
+  /** Calque des territoires par arrondissement : éteint par défaut, puis simplifié ou détaillé */
+  #territoires = null;
+  #modeTerritoires = "off";
+  /** Mode « ping » : le prochain clic sur la carte envoie un ping (bouton de la barre) */
+  #modePing = false;
+
+  /**
+   * Position dans la scène d'un point donné par sa longitude et sa latitude, posé sur le relief.
+   * @param {number} lon
+   * @param {number} lat
+   * @param {number} [hauteur]  hauteur au-dessus du sol, en unités de scène (1 = 1 km)
+   */
+  positionCarte(lon, lat, hauteur = 0) {
+    const [x, y] = versCarte(lon, lat);
+    const sol = this.#scene?.ville?.sol?.(x, y) ?? 0;
+    return new THREE.Vector3(x / 1000, sol * VR / 1000 + hauteur, -y / 1000);
+  }
+
+  /**
+   * Point de la carte sous le pointeur : rayon lancé depuis la caméra jusqu'au relief.
+   * @returns {{lon: number, lat: number, point: object}|null}  null si le rayon ne touche pas le sol
+   */
+  #pointSous(clientX, clientY) {
+    const sc = this.#scene; if ( !sc?.ville ) return null;
+    const r = sc.R.domElement.getBoundingClientRect();
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(new THREE.Vector2((clientX - r.left) / r.width * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1), sc.C);
+    const o = ray.ray.origin, dir = ray.ray.direction;
+    const sous = p => p.y <= sc.ville.sol(p.x * 1000, -p.z * 1000) * VR / 1000;
+    // Marche le long du rayon (pas de 10 m), puis affinage par dichotomie
+    const p = new THREE.Vector3(), q = new THREE.Vector3();
+    let t0 = 0, t1 = null;
+    for ( let t = 0; t < 40; t += 0.01 ) { p.copy(o).addScaledVector(dir, t); if ( sous(p) ) { t1 = t; break; } t0 = t; }
+    if ( t1 === null ) return null;
+    for ( let i = 0; i < 20; i++ ) { const m = (t0 + t1) / 2; q.copy(o).addScaledVector(dir, m); if ( sous(q) ) t1 = m; else t0 = m; }
+    p.copy(o).addScaledVector(dir, t1);
+    const [lon, lat] = depuisCarte(p.x * 1000, -p.z * 1000);
+    return { lon, lat, point: p };
+  }
+
+  /** Clic sur la carte (sans rotation) : ping avec Alt ou en mode ping ; Alt + Maj (MJ) : ping et appel des caméras */
+  #clic(e) {
+    if ( !(e.altKey || this.#modePing) ) return;
+    const pt = this.#pointSous(e.clientX, e.clientY);
+    if ( !pt ) return;
+    const envoye = envoyerPing(pt.lon, pt.lat, { appel: e.shiftKey && game.user.isGM });
+    if ( envoye && this.#modePing ) this.#basculerModePing(false);
+  }
+
+  #basculerModePing(actif = !this.#modePing) {
+    this.#modePing = actif;
+    this.element?.querySelector("[data-holo=ping]")?.classList.toggle("actif", actif);
+    this.element?.querySelector(".holo-scene")?.classList.toggle("mode-ping", actif);
+  }
+
+  /**
+   * Affiche un ping : colonne de lumière qui monte, onde au sol, nom du joueur. Appelé par scripts/ping.mjs.
+   * @param {{lon: number, lat: number, couleur: number, nom: string, appel?: boolean}} p
+   */
+  afficherPing({ lon, lat, couleur, nom, appel = false }) {
+    const sc = this.#scene; if ( !sc?.ville ) return;
+    const pied = this.positionCarte(lon, lat), H = 1.1, ADD = THREE.AdditiveBlending;
+    const mat = opacite => new THREE.MeshBasicMaterial({ color: couleur, transparent: true, opacity: opacite, blending: ADD, depthWrite: false, fog: false, side: THREE.DoubleSide });
+    const groupe = new THREE.Group(); groupe.position.copy(pied);
+    // Colonne : un cœur fin et un halo plus large, le pied au sol
+    const coeur = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.006, H, 8, 1, true), mat(0.95));
+    const halo = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.035, H, 16, 1, true), mat(0.22));
+    for ( const m of [coeur, halo] ) { m.geometry.translate(0, H / 2, 0); m.renderOrder = 5; groupe.add(m); }
+    // Onde au sol
+    const onde = new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 64), mat(0.9));
+    onde.rotation.x = -Math.PI / 2; onde.position.y = 0.003; onde.renderOrder = 5; groupe.add(onde);
+    sc.S.add(groupe);
+    const etiquette = document.createElement("div");
+    etiquette.className = "holo-etiquette ping";
+    etiquette.textContent = nom;
+    etiquette.style.setProperty("--ping", `#${couleur.toString(16).padStart(6, "0")}`);
+    sc.conteneur.appendChild(etiquette);
+    this.#pings.push({ debut: performance.now(), groupe, onde, coeur, halo, etiquette, ancre: pied.clone().setY(pied.y + H) });
+    if ( appel ) { this.#cam.vers = pied.clone(); this.#cam.distVers = 1.6; }
+  }
+
+  /** Animation et extinction des pings (appelé à chaque image) */
+  #animerPings(C, w, h, v) {
+    const maintenant = performance.now();
+    for ( const p of [...this.#pings] ) {
+      const age = maintenant - p.debut;
+      if ( age > DUREE_PING ) {
+        this.#scene.S.remove(p.groupe);
+        p.groupe.traverse(o => { o.geometry?.dispose(); o.material?.dispose(); });
+        p.etiquette.remove();
+        this.#pings.splice(this.#pings.indexOf(p), 1);
+        continue;
+      }
+      const montee = Math.min(1, age / 400), fin = Math.min(1, Math.max(0, (DUREE_PING - age) / 2000));
+      p.coeur.scale.y = p.halo.scale.y = 1 - Math.pow(1 - montee, 3);
+      p.coeur.material.opacity = 0.95 * fin;
+      p.halo.material.opacity = (0.16 + 0.08 * Math.sin(age / 180)) * fin;
+      // Onde : deux secondes par vague, de 10 à 250 m
+      const vague = (age % 2000) / 2000;
+      p.onde.scale.setScalar(0.01 + vague * 0.24);
+      p.onde.material.opacity = 0.9 * (1 - vague) * fin;
+      v.copy(p.ancre).project(C);
+      p.etiquette.hidden = v.z >= 1 || Math.abs(v.x) > 1 || Math.abs(v.y) > 1;
+      p.etiquette.style.left = `${(v.x + 1) / 2 * w}px`; p.etiquette.style.top = `${(1 - v.y) / 2 * h}px`;
+      p.etiquette.style.opacity = String(fin);
+    }
+  }
+
   /** Centre la vue sur un monument (nom tel qu'affiché) */
   centrer(nom) {
     const e = this.#scene?.etiquettes.find(x => x.el.textContent === nom); if ( !e ) return false;
@@ -90,6 +205,9 @@ export class Hologramme extends ApplicationV2 {
         <button type="button" data-holo="verticales">Arêtes verticales</button>
         <button type="button" data-holo="umbra">Vue Umbra</button>
         <button type="button" data-holo="masquage" class="actif">Masquage et fondu</button>
+        <button type="button" data-holo="territoires" title="Teinte chaque arrondissement selon la faction qui le tient (cliquer pour changer de mode)"><i class="fa-solid fa-chess-board" inert></i> <span>Territoires</span></button>
+        <button type="button" data-holo="lieux" title="Liste des lieux de Paris occulte, avec recherche et filtres"><i class="fa-solid fa-list" inert></i> Lieux</button>
+        <button type="button" data-holo="ping" title="Cliquer ensuite sur la carte (raccourci : Alt + clic ; MJ : Alt + Maj + clic pour centrer la vue de tous)"><i class="fa-solid fa-location-crosshairs" inert></i> Ping</button>
         <select data-holo="qualite" title="Densité de la ville">
           <option value="auto">Qualité : automatique</option><option value="complet">Qualité : complète</option><option value="leger">Qualité : légère</option>
         </select></div>
@@ -153,6 +271,15 @@ export class Hologramme extends ApplicationV2 {
       this.#verticales = !this.#verticales; ev.currentTarget.classList.toggle("actif", this.#verticales); this.#reconstruire(); });
     this.element.querySelector("[data-holo=masquage]").addEventListener("click", ev => {
       this.#masquage = !this.#masquage; ev.currentTarget.classList.toggle("actif", this.#masquage); this.#reconstruire(); });
+    this.element.querySelector("[data-holo=ping]").addEventListener("click", () => this.#basculerModePing());
+    this.element.querySelector("[data-holo=territoires]").addEventListener("click", ev => {
+      this.#modeTerritoires = modeSuivant(this.#modeTerritoires);
+      ev.currentTarget.classList.toggle("actif", this.#modeTerritoires !== "off");
+      ev.currentTarget.querySelector("span").textContent = MODES[this.#modeTerritoires];
+      this.#majTerritoires();
+    });
+    this.element.querySelector("[data-holo=lieux]").addEventListener("click", ev => {
+      ev.currentTarget.classList.toggle("actif", !!this.#reperes?.basculerListe()); });
     this.element.querySelector("[data-holo=umbra]").addEventListener("click", ev => {
       this.#mode = this.#mode === "tech" ? "umbra" : "tech"; ev.currentTarget.classList.toggle("actif", this.#mode === "umbra"); this.#reconstruire(); });
     this.#demarrer();
@@ -259,6 +386,29 @@ export class Hologramme extends ApplicationV2 {
       if ( ["monument", "arrondissement"].includes(e.classe) ) el.addEventListener("click", ev => { ev.stopPropagation(); this.centrer(e.texte); });
       sc.conteneur.appendChild(el); return { el, v: e.position, pied: e.pied };
     });
+    // Les repères dépendent du relief et des bâtiments : ils sont refaits avec la ville
+    this.#reperes?.construire(carteCourante(), sc.ville);
+    this.#majTerritoires();
+  }
+
+  /** (Re)construit le calque des territoires et la bulle des pastilles d'arrondissement */
+  #majTerritoires() {
+    const sc = this.#scene; if ( !sc || !this.#territoires ) return;
+    this.#territoires.construire(carteCourante(), sc.ville, this.#modeTerritoires);
+    this.#territoires.titrer(sc.etiquettes);
+  }
+
+  /** Lieu choisi (étiquette ou liste) : la vue glisse vers lui */
+  #allerVers(repere) {
+    this.#cam.vers = repere.vue.clone();
+    this.#cam.distVers = Math.min(this.#cam.dist, 1.1);
+  }
+
+  _onClose(options) {
+    super._onClose(options);
+    if ( this.#crochetCarte !== null ) Hooks.off(CROCHET, this.#crochetCarte);
+    this.#reperes?.detruire();
+    this.#territoires?.detruire();
   }
 
   /** Habillage : compas, cap, inclinaison, visée, heure (appelé à chaque image) */
@@ -270,7 +420,7 @@ export class Hologramme extends ApplicationV2 {
     if ( (now - (this.#hud ?? 0)) < 250 ) return;  // le texte ne change que 4 fois par seconde
     this.#hud = now;
     h.querySelector(".hud-cap").textContent = `CAP ${String(Math.round(cap)).padStart(3, "0")}° · SITE ${Math.round(cam.el * 180 / Math.PI)}°`;
-    const [lat, lon] = latLon(cam.cible.x * 1000, -cam.cible.z * 1000);
+    const [lon, lat] = depuisCarte(cam.cible.x * 1000, -cam.cible.z * 1000);
     h.querySelector(".hud-visee").textContent = `${lat.toFixed(4)} N · ${lon.toFixed(4)} E`;
     const d = new Date(now);
     h.querySelector(".hud-heure").textContent = d.toLocaleTimeString("fr-FR");
@@ -288,13 +438,23 @@ export class Hologramme extends ApplicationV2 {
       blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
     onde.rotation.x = -Math.PI / 2; onde.position.set(-0.8, 0.05, 0); onde.renderOrder = 4; onde.visible = false; S.add(onde);
     this.#scene.onde = onde;
+    this.#reperes = new CalqueReperes(THREE, S, el, { selection: r => this.#allerVers(r) });
+    this.#territoires = new CalqueTerritoires(THREE, S, el);
+    this.#crochetCarte = Hooks.on(CROCHET, () => { this.#reperes?.construire(carteCourante(), this.#scene?.ville); this.#majTerritoires(); });
     this.#reconstruire();
     if ( !matchMedia("(prefers-reduced-motion: reduce)").matches ) this.#scene.ville.groupe.scale.y = 0.02;  // la ville s'élèvera
     const cam = this.#cam; cam.cible = new THREE.Vector3(-0.8, 0, 0); let glisse = null;
-    el.addEventListener("pointerdown", e => { if ( e.target.closest(".holo-etiquette") ) return; glisse = { x: e.clientX, y: e.clientY, a: cam.az, b: cam.el }; el.setPointerCapture(e.pointerId); });
+    el.addEventListener("pointerdown", e => { if ( e.target.closest(".holo-etiquette, .holo-fiche, .holo-lieux") ) return; glisse = { x: e.clientX, y: e.clientY, a: cam.az, b: cam.el, t: performance.now() }; el.setPointerCapture(e.pointerId); });
     el.addEventListener("pointermove", e => { if ( !glisse ) return; cam.az = glisse.a - (e.clientX - glisse.x) * 0.006; cam.el = Math.max(0.1, Math.min(1.45, glisse.b + (e.clientY - glisse.y) * 0.004)); });
-    el.addEventListener("pointerup", () => glisse = null);
-    el.addEventListener("wheel", e => { e.preventDefault(); e.stopPropagation(); cam.distVers = null; cam.dist = Math.max(0.25, Math.min(18, cam.dist * (e.deltaY > 0 ? 1.12 : 0.89))); }, { passive: false });
+    el.addEventListener("pointerup", e => {
+      // Clic sans rotation : on remet la vue où elle était et on traite le clic (ping)
+      if ( glisse && (Math.hypot(e.clientX - glisse.x, e.clientY - glisse.y) < CLIC.px) && (performance.now() - glisse.t < CLIC.ms) ) {
+        cam.az = glisse.a; cam.el = glisse.b; this.#clic(e);
+      }
+      glisse = null;
+    });
+    el.addEventListener("keydown", e => { if ( (e.key === "Escape") && this.#modePing ) { e.stopPropagation(); this.#basculerModePing(false); } });
+    el.addEventListener("wheel", e => { if ( e.target.closest(".holo-fiche, .holo-lieux") ) return; e.preventDefault(); e.stopPropagation(); cam.distVers = null; cam.dist = Math.max(0.25, Math.min(18, cam.dist * (e.deltaY > 0 ? 1.12 : 0.89))); }, { passive: false });
     const v = new THREE.Vector3(); let prec = performance.now();
     const boucle = () => {
       const maintenant = performance.now(), dt = Math.min(0.05, (maintenant - prec) / 1000); prec = maintenant;
@@ -320,6 +480,9 @@ export class Hologramme extends ApplicationV2 {
         C.lookAt(cible); R.render(S, C);
         if ( this.#mesure ) this.#mesurer();
         this.#majHud(cam);
+        this.#animerPings(C, w, h, v);
+        if ( this.#reperes ) { this.#reperes.groupe.visible = !this.#allumage; this.#reperes.animer(C, w, h, v, cam.dist); }
+        if ( this.#territoires ) this.#territoires.groupe.visible = !this.#allumage;
         for ( const e of this.#scene.etiquettes ) {
           v.copy(e.v).project(C);
           e.el.hidden = v.z >= 1 || Math.abs(v.x) > 1 || Math.abs(v.y) > 1;

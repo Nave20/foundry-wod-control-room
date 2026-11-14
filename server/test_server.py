@@ -77,6 +77,64 @@ class TestMagasin(unittest.TestCase):
         self.assertEqual(self.m.supprimer("a")["unites"], {})
 
 
+CARTE = {
+    "lieux": {
+        "siege-conseil": {"nom": "Royaume du Conseil", "type": "siege", "faction": "conseil", "lon": 2.34845, "lat": 48.8882,
+                          "arr": 18, "texte": "Note du MJ", "texte_joueurs": "Le siège du Conseil.", "pj": True},
+        "porte-goutte-or": {"nom": "Porte de la Goutte-d'Or", "type": "porte", "faction": "conseil", "lon": 2.354, "lat": 48.8855,
+                            "arr": 18, "texte": "", "texte_joueurs": "", "pj": False}},
+    "factions": {"conseil": {"nom": "Conseil de Paris", "couleur": "#2f5aa8", "groupe": "Mages", "motif": "", "ordre": 1}},
+    "arrondissements": {"18": {"controle": "conseil", "pj": True, "titre": "Le 18e", "resume": ""}},
+    "quartiers": {"72": {"ar": 18, "nom": "La Chapelle", "controle": "conseil", "pj": True}}
+}
+
+
+class TestCarte(unittest.TestCase):
+    def setUp(self):
+        self.dossier = tempfile.TemporaryDirectory()
+        self.m = Magasin(Path(self.dossier.name) / "d.json")
+
+    def tearDown(self):
+        self.dossier.cleanup()
+
+    def test_vide_puis_remplacee(self):
+        self.assertEqual(self.m.carte(), {"version": 0, "maj": "", "lieux": {}, "factions": {}, "arrondissements": {}, "quartiers": {}})
+        r = self.m.remplacer_carte(CARTE)
+        self.assertEqual((r["version"], r["change"], r["lieux"]), (1, True, 2))
+        c = self.m.carte()
+        self.assertEqual(c["lieux"]["porte-goutte-or"]["pj"], False)
+        self.assertTrue(c["maj"])
+        # Même carte : rien ne change, la version reste
+        self.assertEqual(self.m.remplacer_carte(CARTE)["change"], False)
+        self.assertEqual(self.m.carte()["version"], 1)
+        # Les unités ne sont pas touchées
+        self.assertEqual(self.m.public()["unites"], {})
+
+    def test_carte_refusee(self):
+        import copy
+        def avec(chemin, valeur):
+            c = copy.deepcopy(CARTE); d = c
+            for k in chemin[:-1]: d = d[k]
+            d[chemin[-1]] = valeur
+            return c
+        mauvaises = [
+            avec(["lieux", "siege-conseil", "lon"], 3.5),          # hors de Paris
+            avec(["lieux", "siege-conseil", "type"], "chateau"),
+            avec(["lieux", "siege-conseil", "nom"], ""),
+            avec(["lieux", "siege-conseil", "pj"], "oui"),
+            avec(["lieux", "../x"], CARTE["lieux"]["siege-conseil"]),
+            avec(["factions", "conseil", "couleur"], "bleu"),
+            avec(["arrondissements", "21"], {"controle": "", "pj": False}),
+            avec(["quartiers", "72", "ar"], 25),
+            avec(["lieux", "siege-conseil", "pirate"], 1),
+            "pas une carte",
+        ]
+        for c in mauvaises:
+            with self.assertRaises(ValueError, msg=str(c)[:80]):
+                self.m.remplacer_carte(c)
+        self.assertEqual(self.m.carte()["version"], 0)
+
+
 class TestHTTP(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -113,6 +171,14 @@ class TestHTTP(unittest.TestCase):
         code, corps, _ = self.appel("GET", "/unites")
         self.assertEqual(corps["unites"]["garde"]["force"], 2)
 
+    def test_carte(self):
+        code, corps, _ = self.appel("PUT", "/carte", CARTE)
+        self.assertEqual((code, corps["lieux"]), (200, 2))
+        code, corps, _ = self.appel("GET", "/carte")
+        self.assertEqual((code, corps["lieux"]["siege-conseil"]["nom"]), (200, "Royaume du Conseil"))
+        self.assertEqual(self.appel("PUT", "/carte", {"lieux": []})[0], 400)
+        self.assertEqual(self.appel("GET", "/carte", origine="https://site-pirate.example")[0], 403)
+
     def test_refus(self):
         self.assertEqual(self.appel("PUT", "/unites/garde", {"force": 99})[0], 400)
         self.assertEqual(self.appel("GET", "/unites", origine="https://site-pirate.example")[0], 403)
@@ -133,7 +199,8 @@ class TestMCP(unittest.TestCase):
         self.assertIsNone(traiter_mcp(self.m, {"jsonrpc": "2.0", "method": "notifications/initialized"}))
         noms = [o["name"] for o in traiter_mcp(self.m, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})["result"]["tools"]]
         self.assertEqual(noms, ["lister_unites", "modifier_unite", "synchroniser_reserve", "recuperer_changements",
-                                "acquitter_changements", "etat_serveur_foundry", "lancer_serveur_foundry"])
+                                "acquitter_changements", "etat_serveur_foundry", "lancer_serveur_foundry",
+                                "lire_carte", "synchroniser_carte"])
         r = traiter_mcp(self.m, {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
                                  "params": {"name": "modifier_unite", "arguments": {"id": "a", "force": 4}}})
         self.assertEqual(r["result"]["structuredContent"]["unites"]["a"]["force"], 4)

@@ -151,3 +151,64 @@
 .hologramme-paris .pnl-carte .chips span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hologramme-paris .pnl-carte .pied > span:first-child { flex: none; }
 .hologramme-paris .pnl-carte .lieu { flex: 1 1 auto; min-width: 0; max-width: none; text-align: right; }
+
+/* Ping : nom du joueur au sommet de la colonne, à sa couleur ; curseur en visée en mode ping */
+.hologramme-paris .holo-etiquette.ping { z-index: 3; color: #fff; font-size: 12px; font-weight: bold; letter-spacing: .05em; padding: 1px 8px;
+  border: 1px solid var(--ping, #9ff3ff); border-radius: 10px; background: rgb(3 11 18 / .78);
+  box-shadow: 0 0 10px var(--ping, #9ff3ff); transform: translate(-50%, -130%); transition: none; }
+.hologramme-paris .holo-scene.mode-ping, .hologramme-paris .holo-scene.mode-ping canvas { cursor: crosshair; }
+
+/* Repères des lieux (Paris occulte) : icône à la couleur de la faction, nom affiché de près, au survol ou choisi */
+.hologramme-paris .holo-etiquette.repere { z-index: 2; pointer-events: auto; cursor: pointer; display: flex; align-items: center; gap: 4px;
+  font-size: 11px; color: #f2fbff; padding: 1px 6px; border: 1px solid var(--faction, #9ff3ff); border-radius: 9px;
+  background: rgb(3 11 18 / .78); box-shadow: 0 0 6px color-mix(in srgb, var(--faction, #9ff3ff) 55%, transparent);
+  transform: translate(-50%, -110%); }
+.hologramme-paris .holo-etiquette.repere > i { color: var(--faction, #9ff3ff); font-size: 10px; }
+.hologramme-paris .holo-etiquette.repere .nom { display: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.hologramme-paris .holo-scene.reperes-proches .holo-etiquette.repere .nom,
+.hologramme-paris .holo-etiquette.repere:hover .nom,
+.hologramme-paris .holo-etiquette.repere.choisi .nom { display: inline; }
+.hologramme-paris .holo-etiquette.repere:hover, .hologramme-paris .holo-etiquette.repere.choisi { z-index: 4; box-shadow: 0 0 12px var(--faction, #9ff3ff); }
+.hologramme-paris .holo-etiquette.repere.cache { border-style: dashed; opacity: .75; }
+.hologramme-paris .holo-etiquette.repere .cache-icone { color: #c9d3d8; font-size: 9px; }
+
+/* Fiche d'un lieu : en haut à gauche de la scène, sous le bandeau */
+.hologramme-paris .holo-fiche { position: absolute; z-index: 6; top: 64px; left: 14px; width: 300px; max-height: calc(100% - 130px); overflow-y: auto;
+  padding: 8px 12px 10px; color: #dff6ff; font-size: 12px; line-height: 1.45; background: rgb(3 11 18 / .9);
+  border: 1px solid var(--faction, #37d6ff); border-left-width: 3px; border-radius: 4px; box-shadow: 0 0 14px rgb(0 0 0 / .6); }
+.hologramme-paris .holo-fiche header { display: flex; align-items: center; gap: 6px; }
+.hologramme-paris .holo-fiche header > i { color: var(--faction, #37d6ff); }
+.hologramme-paris .holo-fiche h3 { flex: 1; margin: 0; border: none; font-size: 14px; color: #fff; }
+.hologramme-paris .holo-fiche h4 { margin: 8px 0 2px; border: none; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8fd8ee; }
+.hologramme-paris .holo-fiche p { margin: 0 0 6px; }
+.hologramme-paris .holo-fiche .vide { color: #6f8f9c; font-style: italic; }
+.hologramme-paris .holo-fiche .meta { color: #9fc7d6; margin: 2px 0 6px; }
+.hologramme-paris .holo-fiche .pastille-faction { display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 50%; background: var(--faction); }
+.hologramme-paris .holo-fiche .alerte { margin: 0 0 6px; padding: 2px 6px; color: #ffe3a3; background: rgb(255 200 80 / .12); border-radius: 3px; }
+.hologramme-paris .holo-fiche button.fermer { flex: 0 0 auto; width: 22px; height: 22px; padding: 0; line-height: 1; color: #cdeffa; background: none; border: none; }
+
+/* Liste des lieux : à gauche de la scène, au-dessus de la carte */
+.hologramme-paris .holo-lieux { position: absolute; z-index: 5; top: 64px; bottom: 44px; left: 14px; width: 260px; display: flex; flex-direction: column; gap: 6px;
+  padding: 8px; background: rgb(3 11 18 / .9); border: 1px solid #15394a; border-radius: 4px; }
+.hologramme-paris .holo-scene:has(.holo-lieux) .holo-fiche { left: 284px; }
+.hologramme-paris .holo-lieux input, .hologramme-paris .holo-lieux select { color: #dff6ff; background: #07151f; border: 1px solid #15394a; font-size: 12px; }
+.hologramme-paris .holo-lieux .filtres { display: flex; gap: 4px; }
+.hologramme-paris .holo-lieux .filtres select { flex: 1; min-width: 0; }
+.hologramme-paris .holo-lieux ul { flex: 1; margin: 0; padding: 0; list-style: none; overflow-y: auto; }
+.hologramme-paris .holo-lieux li { display: flex; align-items: center; gap: 6px; padding: 3px 4px; color: #dff6ff; font-size: 12px; cursor: pointer; border-radius: 3px; }
+.hologramme-paris .holo-lieux li:hover { background: rgb(55 214 255 / .12); }
+.hologramme-paris .holo-lieux li > i:first-child { width: 14px; text-align: center; color: var(--faction, #9ff3ff); }
+.hologramme-paris .holo-lieux li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hologramme-paris .holo-lieux li.cache { opacity: .7; }
+.hologramme-paris .holo-lieux .compte { color: #6f8f9c; font-size: 11px; text-align: right; }
+
+/* Territoires : légende en bas à gauche, pastilles d'arrondissement liserées à la couleur du territoire */
+.hologramme-paris .holo-legende { position: absolute; z-index: 4; left: 14px; bottom: 44px; padding: 6px 10px; color: #dff6ff; font-size: 11px;
+  background: rgb(3 11 18 / .85); border: 1px solid #15394a; border-radius: 4px; pointer-events: none; }
+.hologramme-paris .holo-legende .titre { margin-bottom: 3px; color: #8fd8ee; letter-spacing: .06em; text-transform: uppercase; font-size: 10px; }
+.hologramme-paris .holo-legende ul { margin: 0; padding: 0; list-style: none; columns: 2; column-gap: 14px; }
+.hologramme-paris .holo-legende li { display: flex; align-items: center; gap: 5px; line-height: 1.6; break-inside: avoid; }
+.hologramme-paris .holo-legende .echantillon { flex: 0 0 auto; width: 12px; height: 10px; border: 1px solid var(--c); background: color-mix(in srgb, var(--c) 45%, transparent); }
+.hologramme-paris .holo-legende .echantillon.hachures { background: repeating-linear-gradient(-45deg, var(--c) 0 2px, transparent 2px 5px); }
+.hologramme-paris .holo-scene:has(.holo-lieux) .holo-legende { left: 284px; }
+.hologramme-paris .holo-etiquette.arrondissement.avec-territoire { border-color: var(--territoire); box-shadow: 0 0 8px var(--territoire); }
