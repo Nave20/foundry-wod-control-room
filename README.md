@@ -116,6 +116,26 @@ Dans l'application Claude (bureau), déclarer le serveur local dans la configura
 L'artefact appelle alors `host:control-room` (outils `lister_unites` et `modifier_unite`). Seul le propriétaire de
 l'artefact, dans l'application Claude, peut joindre ce serveur.
 
+**Après une mise à jour du module, relancer complètement l'application Claude.** Elle démarre le serveur en mode MCP
+une fois pour toutes et garde l'ancien code tant qu'elle tourne. Un ancien serveur ne connaît pas les champs
+`repere`, `residence` et `insigne`, et les efface à chaque synchronisation de la Réserve.
+
+### « Rolling in the Deep » (Réserve du Conseil)
+
+Ouverte dans l'application Claude du PC du MJ, la page fait le pont avec Foundry :
+
+- elle **reporte toute seule** les changements faits dans Foundry (`recuperer_changements` toutes les 4 secondes, puis
+  `acquitter_changements`) et les note dans un journal « Reçu de Foundry » (40 derniers, un seul par numéro de
+  changement) ;
+- elle **renvoie sa Réserve** au serveur (`synchroniser_reserve`), sans jamais envoyer `repere`, `residence` ni
+  `insigne` : une valeur vieillie rappellerait l'unité ;
+- elle **affiche** sur chaque carte d'unité le lieu de déploiement et la résidence tenus par le serveur (`lister_unites`,
+  noms des lieux par `lire_carte`) ;
+- une unité engagée depuis Foundry n'a pas de date de retour automatique : elle reste engagée jusqu'à son rappel.
+
+L'application Claude demande de confirmer les appels qui modifient le serveur. Si l'envoi revient « annulé » (souvent
+après une relance de l'application), le bouton **Renvoyer à Foundry** de la ligne d'état relance l'envoi par un clic.
+
 ## Tests du serveur
 
 ```

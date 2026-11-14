@@ -183,9 +183,22 @@ def test_insigne_existant_conserve(self): ...  # "insigne": "e07" reste "e07"
 - [ ] **Step 1:** les deux suites de tests passent.
 - [ ] **Step 2:** deux clients (MJ « Claude » et un joueur) : le joueur voit les symboles des lieux révélés, pas de « Rappeler », pas de glisser ; résidence cachée invisible.
 - [ ] **Step 3:** serveur éteint : symboles toujours affichés, déploiement refusé avec notification ; rallumé : tout repart.
-- [ ] **Step 4:** demander au MJ l'accord pour commiter (les retouches d'avant l'étape 4 dans un commit à part, puis l'étape 4) et pour pousser.
+- [x] **Step 4:** demander au MJ l'accord pour commiter (les retouches d'avant l'étape 4 dans un commit à part, puis l'étape 4) et pour pousser.
 
 ### Task 9 (fin d'étape, après accord du MJ) : « Rolling in the Deep »
 
-- [ ] Lire l'artefact (action `read`), y compris le sens d'`affectation`.
-- [ ] Conserver `repere`, `residence`, `insigne` reçus et afficher le lieu de déploiement dans la Réserve ; republier après accord du MJ.
+- [x] Lire l'artefact (action `read`), y compris le sens d'`affectation`.
+- [x] Conserver `repere`, `residence`, `insigne` reçus et afficher le lieu de déploiement dans la Réserve ; republier après accord du MJ.
+
+Fait le 14/11/2026 (page « Rolling in the Deep », versions 19 à 23), vérifié par le MJ (Mercure déployée à la Tour Eiffel) :
+
+- Ruling : `repere`, `residence`, `insigne` ne sont ni écrits dans la base de la page ni renvoyés ; la page les affiche
+  d'après `lister_unites`. Coût si faux : la page ne montre rien quand le serveur est éteint.
+- Décision du MJ : report automatique conservé, plus un journal « Reçu de Foundry » (collection `journal_pont`, document
+  `s<seq>`, 40 derniers) ; une file reportée deux fois (deux fenêtres ouvertes) ne double plus le journal.
+- Décision du MJ : pas de date de retour automatique pour une unité engagée depuis Foundry ; un déploiement efface une
+  ancienne date de retour.
+- Constat : le serveur MCP lancé par l'application Claude gardait le code d'avant la 0.4.0 et a effacé repères et
+  insignes à la synchronisation ; corrigé en relançant l'application (README).
+- Constat : après la relance, l'application annulait l'envoi automatique (confirmation non affichée) ; bouton
+  « Renvoyer à Foundry », et renvoi de l'état final après chaque acquittement.
