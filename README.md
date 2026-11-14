@@ -21,13 +21,27 @@ GeoPackage for Paris (département 75).
 
 ## Ce que fait le module
 
-Une fenêtre « Salle de contrôle » (bouton en bas de l'onglet des acteurs) liste les unités : nom, force, statut.
+Le groupe « Salle de contrôle » de la barre d'outils, à gauche, ouvre l'hologramme de Paris d'un clic ; son second outil ouvre la fenêtre des unités (nom, force, statut). Dans l'hologramme, le bouton « Repères » masque les lieux pour lire la carte (le palais du Conseil et la Sérénité restent).
 
 - Le **mini-serveur** garde ces données dans un fichier sur l'ordinateur du MJ. C'est la seule source de vérité.
-- **Foundry** : seul le MJ actif interroge le serveur, toutes les 3 secondes, et transmet les changements aux joueurs.
+- **Foundry** : chaque MJ lit le serveur toutes les 3 secondes ; seul le MJ actif transmet les changements aux joueurs.
   Le MJ peut modifier la force, le statut, ou ajouter une unité ; les joueurs voient tout en lecture seule.
 - **Un artefact Claude** peut lire et modifier les mêmes données par le même serveur (mode MCP). Une modification d'un
   côté apparaît de l'autre.
+
+### Déployer les unités (0.4.0)
+
+- **Glisser-déposer (MJ)** : faire glisser une carte d'unité du panneau sur un lieu révélé de l'hologramme (étiquette,
+  palais du Conseil, Sérénité) ou sur une ligne de la liste « Lieux ». Une mission facultative est demandée ; l'unité
+  passe « engagée ». Les unités « À gagner », absentes, blessées, perdues ou vides ne se déploient pas.
+- **Symboles d'état-major** : au-dessus de chaque lieu occupé, un symbole par groupe avec le nombre d'unités (plein :
+  déployées ; pointillé : à résidence). Au survol, la liste des unités et « Rappeler » ; un clic ouvre le groupe dans le
+  panneau. Le bouton « Unités » masque les symboles ; ils restent visibles quand les repères sont masqués.
+- **Clic droit sur une carte d'unité (MJ)** : Rappeler (retour à la résidence, statut disponible), définir la
+  résidence, changer d'insigne.
+- **Insignes** : planète des Rédempteurs (autant d'étoiles que son rang depuis le Soleil) ou écusson parmi 30,
+  attribués par le serveur. Les champs `repere`, `residence` et `insigne` sont gardés par le serveur même quand
+  « Rolling in the Deep » ne les connaît pas. Les joueurs ne reçoivent jamais un lieu caché.
 
 ### Lieux de « Paris occulte » sur l'hologramme
 

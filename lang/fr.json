@@ -1,6 +1,9 @@
 {
   "SALLE": {
     "Titre": "Salle de contrôle",
+    "Outils": "Salle de contrôle",
+    "OutilHologramme": "Hologramme de Paris",
+    "OutilUnites": "Unités du Conseil",
     "Ouvrir": "Salle de contrôle",
     "Port": "Port du mini-serveur",
     "PortAide": "Port HTTP du mini-serveur sur cet ordinateur (30010 par défaut). Le serveur n'écoute que sur 127.0.0.1.",
@@ -33,6 +36,7 @@
       "vide": "Vide"
     },
     "Mages": "Mages",
-    "Arete": "Arété"
+    "Arete": "Arété",
+    "HorsLigne": "Salle de contrôle : mini-serveur hors ligne, la modification n'a pas été envoyée."
   }
 }

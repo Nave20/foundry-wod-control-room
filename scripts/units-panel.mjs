@@ -12,6 +12,18 @@ const SIGNES = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#%&@";
 const reduit = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 const DECOR = '<i class="scan"></i><i class="coin"></i><i class="hachures"></i><i class="barre-haut"></i><i class="barre-bas"></i><i class="encoche"></i><i class="tri"></i>';
 
+import { svgInsigne, IDS_INSIGNES, PLANETES } from "./insignes.mjs";
+import { deployable } from "./deploiement.mjs";
+
+/** Type de donnée glissée vers un lieu de l'hologramme : l'identifiant de l'unité */
+export const TYPE_GLISSE = "application/x-wod-unite";
+const echapper = t => String(t ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+/** Rappel d'une unité : elle quitte son lieu et revient à sa résidence (statut disponible, mission vidée) */
+export function rappeler(id) {
+  return game.modules.get("wod-control-room").api.modifierUnite(id, { repere: "", statut: "disponible", mission: "", retour: "" });
+}
+
 export class PanneauUnites {
   /** @param {HTMLElement} racine */
   constructor(racine) {
@@ -19,10 +31,16 @@ export class PanneauUnites {
     this.ouverts = new Set();    // groupes dépliés
     this.connus = new Set();     // groupes déjà vus (un nouveau groupe s'ouvre par défaut)
     this.unites = {};
+    this.lieux = {};
+    this.racine.addEventListener("contextmenu", ev => this.#menu(ev));
   }
 
-  /** Nouvelles données : { id: unité } */
-  maj(unites) {
+  /** Nom d'un lieu de la carte (ou son identifiant s'il n'est pas connu de ce client) */
+  #nomLieu(id) { return this.lieux[id]?.nom ?? id; }
+
+  /** Nouvelles données : { id: unité }, et les lieux de la carte vue par ce client (pour les noms) */
+  maj(unites, lieux = this.lieux) {
+    this.lieux = lieux ?? {};
     // Les unités « À gagner » ne sont pas encore au Conseil : elles n'apparaissent pas dans la salle de contrôle
     this.unites = Object.fromEntries(Object.entries(unites ?? {}).filter(([, u]) => u.statut !== "absent"));
     const groupes = this.#groupes();
@@ -92,7 +110,7 @@ export class PanneauUnites {
 
   #creer(id) {
     const c = document.createElement("div"); c.className = "pnl-carte"; c.dataset.id = id;
-    c.innerHTML = `<div class="int">${DECOR}<div class="haut"><b></b><span class="st"></span></div>`
+    c.innerHTML = `<div class="int">${DECOR}<div class="insigne"></div><div class="haut"><b></b><span class="st"></span></div>`
       + `<div class="jauge">${"<i></i>".repeat(PUISSANCE_MAX)}</div><div class="chips"></div><div class="pied"><span>PUISSANCE <em></em></span><span class="lieu"></span></div></div>`;
     return c;
   }
@@ -109,8 +127,23 @@ export class PanneauUnites {
     // Pied : où l'unité est engagée et quand elle revient
     const lieu = c.querySelector(".lieu");
     const engagee = ["engage", "blesse"].includes(u.statut);
-    lieu.textContent = engagee ? [u.mission, u.retour ? `retour ${dateCourte(u.retour)}` : ""].filter(Boolean).join(" · ") : (u.lieu ?? "");
+    const morceaux = engagee ? [u.repere ? this.#nomLieu(u.repere) : "", u.mission, u.retour ? `retour ${dateCourte(u.retour)}` : ""]
+      : [u.lieu ?? ""];
+    if ( u.residence && !u.repere ) morceaux.push(`⌂ ${this.#nomLieu(u.residence)}`);
+    lieu.textContent = morceaux.filter(Boolean).join(" · ");
     lieu.title = engagee ? (u.mission ?? "") : (u.notes ?? "");
+    // Insigne (redessiné seulement s'il change) et glisser vers un lieu (MJ, unité déployable)
+    const ins = c.querySelector(".insigne");
+    if ( ins.dataset.id !== (u.insigne ?? "") ) { ins.dataset.id = u.insigne ?? ""; ins.innerHTML = svgInsigne(u.insigne, "currentColor", 52); }
+    const dep = deployable(u), mj = game.user.isGM;
+    c.draggable = mj && dep.ok;
+    c.title = mj && !dep.ok ? `Non déployable : ${dep.raison}` : "";
+    if ( !c._glisse ) {
+      c._glisse = true;
+      const signal = actif => c.dispatchEvent(new CustomEvent("wod-unite-glisse", { bubbles: true, detail: { id: c.dataset.id, actif } }));
+      c.addEventListener("dragstart", ev => { ev.dataTransfer.setData(TYPE_GLISSE, c.dataset.id); ev.dataTransfer.effectAllowed = "move"; signal(true); });
+      c.addEventListener("dragend", () => signal(false));
+    }
     // Étiquettes : nombre de mages et Arété (ou l'ancienne composition)
     const etiquettes = u.composition?.length ? u.composition
       : [u.membres ? `${u.membres} mage${u.membres > 1 ? "s" : ""}` : "", u.arete ? `Arété ${u.arete}` : ""].filter(Boolean);
@@ -163,5 +196,70 @@ export class PanneauUnites {
       setTimeout(() => { c.classList.remove("anime"); void c.offsetWidth; c.classList.add("sortie"); }, d + 120);
     });
     liste._fermeture = setTimeout(() => { liste.hidden = true; liste.replaceChildren(); }, cartes.length * 90 + 600);
+  }
+
+  /** Ouvre un groupe et met ses cartes en évidence (clic sur un symbole de l'hologramme) */
+  montrerGroupe(groupe) {
+    if ( !this.ouverts.has(groupe) ) this.basculer(groupe);
+    const bloc = this.racine.querySelector(`:scope > .pnl-groupe[data-groupe="${CSS.escape(groupe)}"]`); if ( !bloc ) return;
+    bloc.scrollIntoView({ block: "start", behavior: "smooth" });
+    for ( const c of bloc.querySelectorAll(".pnl-carte") ) {
+      c.classList.remove("evidence"); void c.offsetWidth; c.classList.add("evidence");
+      setTimeout(() => c.classList.remove("evidence"), 2000);
+    }
+  }
+
+  /** Clic droit sur une carte (MJ) : rappeler, définir la résidence, changer d'insigne */
+  #menu(ev) {
+    const carte = ev.target.closest(".pnl-carte"); if ( !carte || !game.user.isGM ) return;
+    ev.preventDefault();
+    const id = carte.dataset.id, u = this.unites[id]; if ( !u ) return;
+    document.querySelector(".pnl-menu")?.remove();
+    const menu = document.createElement("div"); menu.className = "pnl-menu";
+    const choix = [
+      u.repere ? ["fa-person-walking-arrow-loop-left", "Rappeler", () => rappeler(id)] : null,
+      ["fa-house-flag", "Définir la résidence", () => this.#choisirResidence(id)],
+      ["fa-shield-halved", "Changer d'insigne", () => this.#choisirInsigne(id)]
+    ].filter(Boolean);
+    for ( const [icone, texte, action] of choix ) {
+      const b = document.createElement("button"); b.type = "button";
+      b.innerHTML = `<i class="fa-solid ${icone}" inert></i> ${echapper(texte)}`;
+      b.addEventListener("click", () => { menu.remove(); action(); });
+      menu.append(b);
+    }
+    menu.style.left = `${ev.clientX}px`; menu.style.top = `${ev.clientY}px`;
+    document.body.append(menu);
+    const fermer = e => { if ( !menu.contains(e.target) ) { menu.remove(); document.removeEventListener("pointerdown", fermer, true); } };
+    setTimeout(() => document.addEventListener("pointerdown", fermer, true));
+  }
+
+  async #choisirResidence(id) {
+    const u = this.unites[id];
+    const lieux = Object.entries(this.lieux).sort(([, a], [, b]) => a.nom.localeCompare(b.nom, "fr"));
+    const options = [`<option value="">Aucune</option>`, ...lieux.map(([k, l]) =>
+      `<option value="${echapper(k)}"${k === u.residence ? " selected" : ""}>${echapper(l.nom)}${l.pj === false ? " (caché)" : ""}</option>`)];
+    const r = await foundry.applications.api.DialogV2.input({
+      window: { title: `Résidence : ${u.nom}` },
+      content: `<label>Lieu de résidence <select name="residence" autofocus>${options.join("")}</select></label>`,
+      ok: { label: "Enregistrer" }, rejectClose: false
+    });
+    if ( r ) await game.modules.get("wod-control-room").api.modifierUnite(id, { residence: r.residence ?? "" });
+  }
+
+  async #choisirInsigne(id) {
+    const u = this.unites[id];
+    const pris = new Map(Object.entries(this.unites).filter(([k, x]) => k !== id && x.insigne).map(([k, x]) => [x.insigne, x.nom]));
+    const nom = i => i.startsWith("p") ? PLANETES[Number(i.slice(1)) - 1][0] : `Écusson ${i.slice(1)}`;
+    const cases = IDS_INSIGNES.map(i => `<label class="pnl-insigne-choix${pris.has(i) ? " pris" : ""}" title="${echapper(nom(i))}${pris.has(i) ? ` (${echapper(pris.get(i))})` : ""}">`
+      + `<input type="radio" name="insigne" value="${i}"${i === u.insigne ? " checked" : ""}${pris.has(i) && i.startsWith("e") ? " disabled" : ""}><span data-insigne="${i}"></span></label>`).join("");
+    const r = await foundry.applications.api.DialogV2.input({
+      window: { title: `Insigne : ${u.nom}` }, classes: ["wod-choix-insigne"],
+      content: `<div class="pnl-insignes">${cases}</div>`, ok: { label: "Enregistrer" }, rejectClose: false,
+      // Le contenu des dialogues est nettoyé (SVG retirés) : les dessins sont posés une fois la fenêtre ouverte
+      render: (event, dialog) => {
+        for ( const el of dialog.element.querySelectorAll("[data-insigne]") ) el.innerHTML = svgInsigne(el.dataset.insigne, "currentColor", 40);
+      }
+    });
+    if ( r?.insigne && r.insigne !== u.insigne ) await game.modules.get("wod-control-room").api.modifierUnite(id, { insigne: r.insigne });
   }
 }

@@ -10,6 +10,7 @@
 import { Hologramme } from "./hologram.mjs";
 import { ecouterPings } from "./ping.mjs";
 import { publierCarte, registerCarteSettings } from "./carte.mjs";
+import { filtrerUnites } from "./deploiement.mjs";
 
 const ID = "wod-control-room";
 const DELAI_APPEL = 2500;
@@ -51,12 +52,19 @@ function donneesValides(d) {
   return d && Number.isInteger(d.version) && d.unites && (typeof d.unites === "object") && !Array.isArray(d.unites);
 }
 
-/** Recopie l'état et les données dans le réglage du monde, seulement s'ils ont changé */
+/**
+ * Recopie l'état et les données, seulement s'ils ont changé : version complète sur le PC du MJ (« unitesMj »),
+ * version filtrée dans le réglage du monde (« copie ») : aucun lieu caché n'y figure (déploiement, résidence).
+ */
 async function publier(nouvelEtat, donnees) {
   const avant = copie();
-  const d = donnees ?? avant.donnees;
-  if ( (avant.etat === nouvelEtat) && (avant.donnees?.version === d.version) ) return;
-  await game.settings.set(ID, "copie", { etat: nouvelEtat, donnees: d });
+  const mj = game.settings.get(ID, "unitesMj");
+  const d = donnees ?? (mj?.version ? mj : avant.donnees);
+  if ( donnees && mj?.version !== d.version ) await game.settings.set(ID, "unitesMj", d);
+  if ( !estMjActif() ) return;
+  const filtree = { ...d, unites: filtrerUnites(d.unites, game.settings.get(ID, "carteMj")?.lieux) };
+  if ( (avant.etat === nouvelEtat) && (JSON.stringify(avant.donnees) === JSON.stringify(filtree)) ) return;
+  await game.settings.set(ID, "copie", { etat: nouvelEtat, donnees: filtree });
 }
 
 function changerEtat(nouvel) {
@@ -81,14 +89,16 @@ function changerEtat(nouvel) {
 /** Un tour de vérification : santé + données ; programme le suivant */
 async function verifier() {
   clearTimeout(minuterie);
-  if ( !estMjActif() ) return;
+  // Tous les MJ lisent le serveur (vue complète) ; seul le MJ actif écrit les réglages du monde
+  if ( !game.user.isGM ) return;
   const r = await appel("GET", "/unites");
   if ( r.ok && donneesValides(r.corps) ) {
     changerEtat("connecte");
-    await publier("connecte", r.corps);
-    // Carte de Paris (« Paris occulte ») : ancien serveur sans carte → 404, sans conséquence
+    // Carte de Paris (« Paris occulte ») d'abord : la copie des joueurs est filtrée avec la carte à jour
+    // (ancien serveur sans carte → 404, sans conséquence)
     const c = await appel("GET", "/carte");
     if ( c.ok ) await publierCarte(c.corps);
+    await publier("connecte", r.corps);
   } else {
     changerEtat("hors_ligne");
     await publier("hors_ligne");
@@ -97,14 +107,16 @@ async function verifier() {
   minuterie = setTimeout(verifier, etat === "connecte" ? INTERVALLE_CONNECTE : INTERVALLE_HORS_LIGNE);
 }
 
-/** Modification envoyée par le MJ ; rien n'est tenté si le serveur est hors ligne */
+/** Modification envoyée par le MJ ; rien n'est tenté si le serveur est hors ligne. Renvoie true si elle est acceptée. */
 async function modifier(uid, champs) {
-  if ( !estMjActif() || (etat !== "connecte") ) return;
+  if ( !game.user.isGM ) return false;
+  if ( etat !== "connecte" ) { ui.notifications.warn(loc("HorsLigne")); return false; }
   const r = await appel("PUT", `/unites/${encodeURIComponent(uid)}`, champs);
-  if ( r.ok && donneesValides(r.corps) ) return publier("connecte", r.corps);
-  if ( !r.joignable ) return verifier();
+  if ( r.ok && donneesValides(r.corps) ) { await publier("connecte", r.corps); return true; }
+  if ( !r.joignable ) { ui.notifications.warn(loc("HorsLigne")); verifier(); return false; }
   ui.notifications.warn(loc("Refuse", { erreur: r.corps?.erreur ?? r.code }));
   SalleDeControle.instance?.render();
+  return false;
 }
 
 /** Identifiant d'unité à partir d'un nom : « Garde du Node » → « garde-du-node » (unique) */
@@ -130,7 +142,7 @@ class SalleDeControle extends HandlebarsApplicationMixin(ApplicationV2) {
     position: { width: 560, height: "auto" },
     actions: {
       reessayer: () => verifier(),
-      hologramme: () => new Hologramme().render({ force: true }),
+      hologramme: () => ouvrirHologramme(),
       ajouter: SalleDeControle.#ajouter
     }
   };
@@ -213,26 +225,40 @@ Hooks.once("init", () => {
 
 Hooks.once("ready", () => {
   ecouterPings();
-  game.modules.get(ID).api = { ouvrir: () => SalleDeControle.ouvrir(), hologramme: () => new Hologramme().render({ force: true }) };
-  if ( estMjActif() ) verifier();
+  game.modules.get(ID).api = { ouvrir: () => SalleDeControle.ouvrir(), hologramme: () => ouvrirHologramme(), modifierUnite: modifier };
+  if ( game.user.isGM ) verifier();
 });
 
 // Le MJ actif change (un autre MJ se connecte ou part) : seul le nouveau MJ actif interroge le serveur
 Hooks.on("userConnected", () => {
-  if ( estMjActif() ) { if ( etat === "inconnu" ) verifier(); }
-  else clearTimeout(minuterie);
+  if ( game.user.isGM && (etat === "inconnu") ) verifier();
   SalleDeControle.instance?.render();
 });
 
-// Bouton dans l'onglet des acteurs
-Hooks.on("renderActorDirectory", (app, html) => {
-  const racine = html instanceof HTMLElement ? html : html?.[0];
-  const pied = racine?.querySelector(".directory-footer") ?? racine;
-  if ( !pied || pied.querySelector(".salle-ouvrir") ) return;
-  const bouton = document.createElement("button");
-  bouton.type = "button";
-  bouton.className = "salle-ouvrir";
-  bouton.innerHTML = `<i class="fa-solid fa-satellite-dish" inert></i> ${loc("Ouvrir")}`;
-  bouton.addEventListener("click", () => SalleDeControle.ouvrir());
-  pied.append(bouton);
+// Groupe « Salle de contrôle » dans la barre d'outils de gauche : hologramme (outil principal) et unités
+/** Une seule fenêtre d'hologramme : si elle est déjà ouverte, on la ramène au premier plan */
+function ouvrirHologramme() {
+  const ouverte = [...foundry.applications.instances.values()].find(a => a instanceof Hologramme);
+  if ( ouverte ) return ouverte.bringToFront?.() ?? ouverte.render({ force: true });
+  return new Hologramme().render({ force: true });
+}
+const OUTILS = { hologramme: ouvrirHologramme, unites: () => SalleDeControle.ouvrir() };
+Hooks.on("getSceneControlButtons", controls => {
+  controls.wodControlRoom = {
+    name: "wodControlRoom", title: loc("Outils"), icon: "fa-solid fa-satellite-dish",
+    order: Object.keys(controls).length, visible: true, activeTool: "hologramme",
+    onChange: (event, actif) => { if ( actif ) ouvrirHologramme(); },
+    tools: {
+      hologramme: { name: "hologramme", title: loc("OutilHologramme"), icon: "fa-solid fa-city", order: 0, button: true, onChange: ouvrirHologramme },
+      unites: { name: "unites", title: loc("OutilUnites"), icon: "fa-solid fa-users", order: 1, button: true, onChange: OUTILS.unites }
+    }
+  };
+});
+// Sans scène active, Foundry ignore les clics de la barre d'outils (14.369) : on ouvre alors nous-mêmes
+Hooks.on("renderSceneControls", (app, element) => {
+  const racine = element instanceof HTMLElement ? element : element?.[0];
+  racine?.querySelector('button[data-control="wodControlRoom"]')?.addEventListener("click", () => { if ( !canvas.ready ) ouvrirHologramme(); });
+  for ( const [nom, ouvrir] of Object.entries(OUTILS) ) {
+    racine?.querySelector(`button[data-tool="${nom}"]`)?.addEventListener("click", () => { if ( !canvas.ready ) ouvrir(); });
+  }
 });

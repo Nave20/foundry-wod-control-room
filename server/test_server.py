@@ -10,7 +10,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(__file__))
-from control_room_server import Magasin, fabriquer_gestionnaire, traiter_mcp  # noqa: E402
+from control_room_server import Magasin, attribuer_insignes, fabriquer_gestionnaire, traiter_mcp  # noqa: E402
 
 ICI = Path(__file__).parent
 
@@ -27,7 +27,7 @@ class TestMagasin(unittest.TestCase):
         self.assertEqual(self.m.public(), {"version": 0, "unites": {}, "date_jeu": ""})
         d = self.m.modifier("verbenae", {"nom": "Verbenae de Montreuil", "force": 3})
         self.assertEqual(d["version"], 1)
-        self.assertEqual(d["unites"]["verbenae"], {"nom": "Verbenae de Montreuil", "force": 3, "statut": "disponible"})
+        self.assertEqual(d["unites"]["verbenae"], {"nom": "Verbenae de Montreuil", "force": 3, "statut": "disponible", "insigne": "e01"})
         d = self.m.modifier("verbenae", {"statut": "engage", "retour": "2019-05-03"})
         self.assertEqual((d["version"], d["unites"]["verbenae"]["force"]), (2, 3))
 
@@ -133,6 +133,135 @@ class TestCarte(unittest.TestCase):
             with self.assertRaises(ValueError, msg=str(c)[:80]):
                 self.m.remplacer_carte(c)
         self.assertEqual(self.m.carte()["version"], 0)
+
+
+CARTE_DEPLOIEMENT = {
+    "lieux": {
+        "opera": {"nom": "Opéra Garnier", "type": "autre", "lon": 2.3316, "lat": 48.8719, "pj": True},
+        "cave": {"nom": "Cave cachée", "type": "refuge", "lon": 2.35, "lat": 48.86, "pj": False}},
+    "factions": {}, "arrondissements": {}, "quartiers": {}
+}
+
+
+class TestDeploiement(unittest.TestCase):
+    def setUp(self):
+        self.dossier = tempfile.TemporaryDirectory()
+        self.m = Magasin(Path(self.dossier.name) / "d.json")
+        self.m.remplacer_carte(CARTE_DEPLOIEMENT)
+
+    def tearDown(self):
+        self.dossier.cleanup()
+
+    def test_deployer_sur_lieu_revele(self):
+        d = self.m.modifier("r-mercure", {"repere": "opera", "statut": "engage"})
+        self.assertEqual(d["unites"]["r-mercure"]["repere"], "opera")
+
+    def test_refus_lieu_cache_ou_inconnu(self):
+        for lid in ("cave", "nulle-part"):
+            with self.assertRaises(ValueError, msg=lid):
+                self.m.modifier("r-mercure", {"repere": lid})
+        with self.assertRaises(ValueError):
+            self.m.modifier("r", {"residence": "nulle-part"})
+
+    def test_residence_peut_etre_cachee(self):
+        self.assertEqual(self.m.modifier("r", {"residence": "cave"})["unites"]["r"]["residence"], "cave")
+
+    def test_statut_rappel_vide_repere(self):
+        self.m.modifier("r", {"repere": "opera", "statut": "engage"})
+        self.assertEqual(self.m.modifier("r", {"statut": "perdu"})["unites"]["r"]["repere"], "")
+
+    def test_blesse_garde_repere(self):
+        self.m.modifier("r", {"repere": "opera", "statut": "engage"})
+        self.assertEqual(self.m.modifier("r", {"statut": "blesse"})["unites"]["r"]["repere"], "opera")
+
+    def test_synchro_conserve_les_champs_locaux(self):
+        self.m.modifier("r", {"repere": "opera", "residence": "cave", "statut": "engage"})
+        self.m.acquitter(10 ** 6)
+        self.m.synchroniser({"r": {"nom": "R", "statut": "engage"}})
+        u = self.m.public()["unites"]["r"]
+        self.assertEqual((u["repere"], u["residence"]), ("opera", "cave"))
+
+    def test_synchro_statut_rappel_vide_repere(self):
+        self.m.modifier("r", {"repere": "opera", "statut": "engage"})
+        self.m.acquitter(10 ** 6)
+        self.m.synchroniser({"r": {"nom": "R", "statut": "perdu"}})
+        self.assertEqual(self.m.public()["unites"]["r"]["repere"], "")
+
+    def test_ecusson_deja_pris_refuse(self):
+        self.m.modifier("a", {"nom": "A"})
+        self.m.modifier("b", {"nom": "B"})
+        pris = self.m.public()["unites"]["a"]["insigne"]
+        with self.assertRaises(ValueError):
+            self.m.modifier("b", {"insigne": pris})
+        self.m.modifier("a", {"insigne": pris})  # garder le sien est permis
+
+    def test_repere_seul_engage_l_unite(self):
+        d = self.m.modifier("r", {"nom": "R", "repere": "opera"})
+        self.assertEqual((d["unites"]["r"]["repere"], d["unites"]["r"]["statut"]), ("opera", "engage"))
+
+    def test_synchro_insigne_vide_conserve(self):
+        self.m.modifier("r", {"nom": "R", "insigne": "e07"})
+        self.m.acquitter(10 ** 6)
+        self.m.synchroniser({"r": {"nom": "R", "insigne": ""}})
+        self.assertEqual(self.m.public()["unites"]["r"]["insigne"], "e07")
+
+    def test_synchro_repere_vide_envoye_rappelle(self):
+        """Comportement figé pour l'étape 9 : la page ne doit envoyer `repere` que si elle le tient du serveur"""
+        self.m.modifier("r", {"repere": "opera", "statut": "engage"})
+        self.m.acquitter(10 ** 6)
+        self.m.synchroniser({"r": {"nom": "R", "statut": "engage", "repere": ""}})
+        self.assertEqual(self.m.public()["unites"]["r"]["repere"], "")
+
+    def test_synchro_ne_refuse_pas_un_lieu_cache(self):
+        self.m.synchroniser({"r": {"nom": "R", "repere": "cave", "statut": "engage"}})
+        self.assertEqual(self.m.public()["unites"]["r"]["repere"], "cave")
+
+
+class TestInsignes(unittest.TestCase):
+    def test_planete_depuis_le_nom(self):
+        u = {"a": {"nom": "Rédempteurs de Neptune", "groupe": "Rédempteurs"},
+             "b": {"nom": "Rédempteur de Pluton (K. Varga)", "groupe": "Rédempteurs"},
+             "c": {"nom": "Rédempteurs de la Terre", "groupe": "Rédempteurs"}}
+        self.assertTrue(attribuer_insignes(u))
+        self.assertEqual([u[k]["insigne"] for k in "abc"], ["p8", "p9", "p3"])
+
+    def test_ecussons_libres_dans_l_ordre(self):
+        u = {"x": {"nom": "X", "insigne": "e01"}, "y": {"nom": "Y", "ordre": 2}, "z": {"nom": "Z", "ordre": 1}}
+        attribuer_insignes(u)
+        self.assertEqual((u["z"]["insigne"], u["y"]["insigne"]), ("e02", "e03"))
+
+    def test_redempteur_sans_planete_prend_un_ecusson(self):
+        u = {"a": {"nom": "Rédempteurs inconnus", "groupe": "Rédempteurs"}}
+        attribuer_insignes(u)
+        self.assertEqual(u["a"]["insigne"], "e01")
+
+    def test_plus_d_ecusson_libre(self):
+        u = {f"u{i}": {"nom": f"U{i}", "insigne": f"e{i:02d}"} for i in range(1, 31)}
+        u["neuf"] = {"nom": "Neuf"}
+        attribuer_insignes(u)
+        self.assertEqual(u["neuf"]["insigne"], "")
+
+    def test_insigne_existant_conserve(self):
+        u = {"a": {"nom": "A", "insigne": "e07"}}
+        self.assertFalse(attribuer_insignes(u))
+        self.assertEqual(u["a"]["insigne"], "e07")
+
+    def test_attribue_a_la_creation_et_a_la_synchro(self):
+        with tempfile.TemporaryDirectory() as dossier:
+            m = Magasin(Path(dossier) / "d.json")
+            m.synchroniser({"a": {"nom": "A"}, "b": {"nom": "B"}})
+            u = m.public()["unites"]
+            self.assertEqual(sorted((u["a"]["insigne"], u["b"]["insigne"])), ["e01", "e02"])
+            # Rolling ne connaît pas l'insigne : il est conservé
+            m.synchroniser({"a": {"nom": "A"}, "b": {"nom": "B"}})
+            self.assertEqual(m.public()["unites"], u)
+
+    def test_attribue_au_demarrage(self):
+        with tempfile.TemporaryDirectory() as dossier:
+            f = Path(dossier) / "d.json"
+            f.write_text(json.dumps({"version": 4, "unites": {"r": {"nom": "Rédempteurs de Mars", "groupe": "Rédempteurs"}}}), encoding="utf-8")
+            d = Magasin(f).public()
+            self.assertEqual((d["version"], d["unites"]["r"]["insigne"]), (5, "p4"))
 
 
 class TestHTTP(unittest.TestCase):

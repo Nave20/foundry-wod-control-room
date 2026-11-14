@@ -1,0 +1,67 @@
+/**
+ * Insignes des unités, en SVG fil de fer (maquettes validées par le MJ le 14/11/2026 :
+ * docs/superpowers/specs/2026-11-14-insignes-maquettes.html).
+ * - p1 … p9 : planètes des Rédempteurs (Mercure … Pluton), autant d'étoiles sur l'orbite que le rang depuis le Soleil.
+ * - e01 … e30 : écussons, emblème (n-1) % 10 et galons floor((n-1) / 10) : aucun, deux chevrons dessous, deux barrettes dessus.
+ */
+
+const EMBLEMES = [
+  '<path d="M20 11l2.6 5.4 5.9.8-4.3 4.1 1 5.9L20 24.4l-5.2 2.8 1-5.9-4.3-4.1 5.9-.8z"/>',          // étoile
+  '<path d="M11 20q9-9 18 0q-9 9-18 0z"/><circle cx="20" cy="20" r="2.6"/>',                           // œil
+  '<circle cx="15" cy="20" r="3.5"/><path d="M18.5 20h11M26 20v3M29 20v3"/>',                         // clé
+  '<path d="M20 11c4 5 6 8 6 11a6 6 0 0 1-12 0c0-3 2-4 3-6 1 2 2 3 3 3-1-3-1-5 0-8z"/>',               // flamme
+  '<path d="M23 12a8 8 0 1 0 0 16a6 6 0 1 1 0-16z"/>',                                                // croissant
+  '<path d="M12 26v-10l4 4 4-6 4 6 4-4v10z"/>',                                                       // couronne
+  '<path d="M20 10v15M16 24h8M20 25v4"/>',                                                            // épée
+  '<path d="M14 28v-14h3v3h2v-3h2v3h2v-3h3v14z"/>',                                                   // tour
+  '<path d="M20 21q-5-8-10-5q3 2 3 5q3-2 7 0zM20 21q5-8 10-5q-3 2-3 5q-3-2-7 0z"/>',                   // ailes
+  '<path d="M14 11h12l-12 18h12z"/>'                                                                  // sablier
+];
+const GALONS = ["", '<path d="M12 33l8-3 8 3M12 36.5l8-3 8 3"/>', '<path d="M13 7h14M15 4.5h10"/>'];
+const CADRE = '<path d="M6 5h28v15c0 9-7 14-14 17C13 34 6 29 6 20z"/>';
+
+export const PLANETES = [
+  ["Mercure", '<circle cx="21" cy="25" r="1.6"/><circle cx="27" cy="29" r="2.2"/><circle cx="22" cy="32" r="1.2"/>'],
+  ["Vénus", '<path d="M15 25q5-3 9 0t9 0M15 30q5-3 9 0t9 0"/>'],
+  ["Terre", '<path d="M17 24q4-2 5 2t5 1q2 3-1 5M27 21q3 2 2 4"/>'],
+  ["Mars", '<path d="M18 20.5q6-2 12 0"/><circle cx="22" cy="28" r="2"/><circle cx="28" cy="31" r="1.3"/>'],
+  ["Jupiter", '<path d="M15 24h18M15 28h18M16 32h16"/><ellipse cx="27" cy="30" rx="2.4" ry="1.3"/>'],
+  ["Saturne", '<ellipse cx="24" cy="27" rx="13" ry="3.5" transform="rotate(-15 24 27)"/>'],
+  ["Uranus", '<ellipse cx="24" cy="27" rx="3.2" ry="12.5" transform="rotate(-8 24 27)"/>'],
+  ["Neptune", '<path d="M15 25q9 2 18 0"/><ellipse cx="21" cy="30" rx="2.6" ry="1.5"/>'],
+  ["Pluton", '<path d="M26 31c-4-2-5-4-4-5.5 1-1.2 2.5-.5 3.2.6.6-1.1 2.3-1.8 3.2-.5 1 1.6-.4 3.5-2.4 5.4z"/>']
+];
+
+export const IDS_INSIGNES = [...PLANETES.map((_, i) => `p${i + 1}`), ...Array.from({ length: 30 }, (_, i) => `e${String(i + 1).padStart(2, "0")}`)];
+
+let compteur = 0;
+
+const etoile = (x, y, s, c) => `<path d="M${x} ${y - s}L${x + s * .3} ${y - s * .3} ${x + s} ${y} ${x + s * .3} ${y + s * .3} ${x} ${y + s} `
+  + `${x - s * .3} ${y + s * .3} ${x - s} ${y} ${x - s * .3} ${y - s * .3}z" fill="${c}" stroke="none"/>`;
+const arrondi = v => Math.round(v * 100) / 100;
+
+function ecusson(n, c, t) {
+  const i = n - 1;
+  return `<svg width="${t}" height="${t}" viewBox="0 0 40 40" fill="none" stroke="${c}" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true">`
+    + `${CADRE}${EMBLEMES[i % 10]}${GALONS[Math.floor(i / 10)]}</svg>`;
+}
+
+function planete(n, c, t) {
+  const i = n - 1, d = PLANETES[i][1], R = 17, id = `wod-insigne-${++compteur}`;
+  let deco = `<circle cx="24" cy="27" r="${R}" stroke-dasharray="1.5 2.5" opacity=".45"/>`;
+  for ( let k = 0; k < n; k++ ) {
+    const a = (-90 + 360 * k / n) * Math.PI / 180;
+    deco += etoile(arrondi(24 + Math.cos(a) * R), arrondi(27 + Math.sin(a) * R), n > 6 ? 2.9 : 3.3, c);
+  }
+  const devant = (i === 5 || i === 6);  // anneaux de Saturne et d'Uranus : par-dessus le disque
+  return `<svg width="${t}" height="${t}" viewBox="0 6 48 42" fill="none" stroke="${c}" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">`
+    + `<defs><clipPath id="${id}"><circle cx="24" cy="27" r="9"/></clipPath></defs>${deco}<circle cx="24" cy="27" r="9" fill="#04121b"/>`
+    + `${devant ? d : `<g clip-path="url(#${id})">${d}</g>`}${i === 2 ? '<circle cx="35" cy="20" r="1.5"/>' : ""}</svg>`;
+}
+
+/** Balise <svg> de l'insigne, ou "" pour un identifiant vide ou inconnu */
+export function svgInsigne(id, couleur, taille) {
+  const m = /^(p|e)(\d+)$/.exec(String(id ?? ""));
+  if ( !m || !IDS_INSIGNES.includes(id) ) return "";
+  return m[1] === "p" ? planete(Number(m[2]), couleur, taille) : ecusson(Number(m[2]), couleur, taille);
+}

@@ -60,10 +60,27 @@ export class CalqueReperes {
     this.reperes = [];
     this.anneaux = [];
     this.cabines = [];   // { m, bas, haut } : cabines d'ascenseur qui montent en boucle
+    this.masques = false;  // repères masqués pour la lisibilité (le Conseil et la Sérénité restent, sans étiquette)
     this.selection = null;
     this.carte = null;
     this.fiche = null;
     this.liste = null;
+    this.depot = false;    // une unité est en train d'être glissée : les lieux révélés deviennent des cibles
+    // Dépôt d'une unité sur l'étiquette d'un lieu ou sur une ligne de la liste « Lieux » (MJ)
+    const cible = ev => this.depot ? ev.target.closest?.(".holo-etiquette.repere.cible, .holo-lieux li.cible") : null;
+    conteneur.addEventListener("dragover", ev => {
+      const c = cible(ev);
+      for ( const x of conteneur.querySelectorAll(".survol-depot") ) if ( x !== c ) x.classList.remove("survol-depot");
+      if ( !c ) return;
+      ev.preventDefault(); ev.dataTransfer.dropEffect = "move"; c.classList.add("survol-depot");
+    });
+    conteneur.addEventListener("drop", ev => {
+      const c = cible(ev); if ( !c ) return;
+      ev.preventDefault();
+      const unite = ev.dataTransfer.getData("application/x-wod-unite");
+      this.activerDepot(false);
+      if ( unite ) this.rappels.depot?.(c.dataset.id, unite);
+    });
   }
 
   /** Couleur lisible sur le fond sombre (les couleurs de faction très foncées sont éclaircies) */
@@ -130,6 +147,8 @@ export class CalqueReperes {
       const cache = carte.complete && !l.pj;
       const op = cache ? 0.45 : 1;
       const r = { id: l.id, lieu: l, pied, couleur, cache, objets: [], ancre: null, pulsation: [] };
+      const avant = this.groupe.children.length;
+      r.permanent = (l.id === ID_SERENITE) || royaumes.has(l.id);  // reste visible quand les repères sont masqués
 
       if ( l.id === ID_SERENITE ) {
         // Dirigeable amarré en hauteur ; le salon (sous la proue) est à l'aplomb de l'ascenseur
@@ -195,9 +214,11 @@ export class CalqueReperes {
         }
       }
       r.vue ??= r.ancre.clone().setY(pied.y);  // point regardé quand on choisit ce lieu
+      r.elements = this.groupe.children.slice(avant);
       r.etiquette = this.#etiquette(r);
       this.reperes.push(r);
     }
+    this.#appliquerVisibilite();
     this.#majListe();
     if ( this.selection && !this.reperes.some(r => r.id === this.selection) ) this.fermerFiche();
     else if ( this.selection ) this.ouvrirFiche(this.selection, { centrer: false });
@@ -287,10 +308,41 @@ export class CalqueReperes {
       li.style.setProperty("--faction", `#${r.couleur.getHexString()}`);
       li.innerHTML = `<i class="fa-solid ${(TYPES[r.lieu.type] ?? TYPES.autre).icone}" inert></i><span></span>${r.cache ? '<i class="fa-solid fa-eye-slash" inert></i>' : ""}`;
       li.querySelector("span").textContent = r.lieu.nom;
+      li.dataset.id = r.id;
+      li.classList.toggle("cible", this.depot && !r.cache);
       li.addEventListener("click", () => this.ouvrirFiche(r.id));
       ul.appendChild(li);
     }
     el.querySelector(".compte").textContent = `${vus.length} lieu${vus.length > 1 ? "x" : ""} sur ${this.reperes.length}`;
+  }
+
+  /** Glisser d'une unité commencé ou fini : les lieux révélés (palais et Sérénité compris) s'allument comme cibles */
+  activerDepot(actif) {
+    this.depot = actif;
+    this.conteneur.classList.toggle("depot-unite", actif);
+    for ( const r of this.reperes ) {
+      r.etiquette.classList.toggle("cible", actif && !r.cache);
+      if ( !actif ) r.etiquette.classList.remove("survol-depot");
+    }
+    for ( const li of this.liste?.querySelectorAll("li") ?? [] ) {
+      const r = this.reperes.find(x => x.id === li.dataset.id);
+      li.classList.toggle("cible", actif && !!r && !r.cache);
+      if ( !actif ) li.classList.remove("survol-depot");
+    }
+  }
+
+  /** Masque ou réaffiche les repères ; renvoie true si les repères sont désormais masqués */
+  basculerVisibilite() {
+    this.masques = !this.masques;
+    this.#appliquerVisibilite();
+    return this.masques;
+  }
+
+  #appliquerVisibilite() {
+    for ( const r of this.reperes ) {
+      if ( r.permanent ) continue;
+      for ( const o of r.elements ?? [] ) o.visible = !this.masques;
+    }
   }
 
   /** À chaque image : pulsation, rotation des anneaux, position des étiquettes */
@@ -300,9 +352,10 @@ export class CalqueReperes {
     for ( const c of this.cabines ) c.m.position.y = c.bas + (c.haut - c.bas) * ((t / 6) % 1);
     this.conteneur.classList.toggle("reperes-proches", dist < DISTANCE_NOMS);
     for ( const r of this.reperes ) {
-      for ( const p of r.pulsation ) p.m.material.opacity = p.base * (0.78 + 0.22 * Math.sin(t * 2.2 + r.pied.x * 7));
+      const fort = this.depot && !r.cache;  // cible de dépôt : pulsation plus vive
+      for ( const p of r.pulsation ) p.m.material.opacity = Math.min(1, p.base * (fort ? 1.25 + 0.5 * Math.sin(t * 6) : 0.78 + 0.22 * Math.sin(t * 2.2 + r.pied.x * 7)));
       v.copy(r.ancre).project(C);
-      r.etiquette.hidden = !this.groupe.visible || v.z >= 1 || Math.abs(v.x) > 1 || Math.abs(v.y) > 1;
+      r.etiquette.hidden = !this.groupe.visible || (this.masques && !(this.depot && !r.cache)) || v.z >= 1 || Math.abs(v.x) > 1 || Math.abs(v.y) > 1;
       r.etiquette.style.left = `${(v.x + 1) / 2 * w}px`; r.etiquette.style.top = `${(1 - v.y) / 2 * h}px`;
     }
   }

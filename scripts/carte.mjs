@@ -13,6 +13,8 @@ import { territoires } from "./territoires.mjs";
 
 const ID = "wod-control-room";
 export const CROCHET = "wodControlRoomCarte";
+/** Crochet appelé quand les unités vues par ce client changent */
+export const CROCHET_UNITES = "wodControlRoomUnites";
 const VIDE = { version: 0, maj: "", lieux: {}, factions: {}, arrondissements: {}, quartiers: {} };
 
 export function registerCarteSettings() {
@@ -21,6 +23,18 @@ export function registerCarteSettings() {
     onChange: () => { if ( !game.user.isGM ) Hooks.callAll(CROCHET); }
   });
   game.settings.register(ID, "carteMj", { scope: "client", config: false, type: Object, default: VIDE });
+  // Unités complètes du MJ (déploiements et résidences sur des lieux cachés compris), jamais envoyées aux joueurs
+  game.settings.register(ID, "unitesMj", {
+    scope: "client", config: false, type: Object, default: { version: 0, unites: {} },
+    onChange: () => Hooks.callAll(CROCHET_UNITES)
+  });
+}
+
+/** Unités vues par ce client : complètes pour le MJ, copie filtrée (réglage « copie ») pour les joueurs */
+export function unitesCourantes() {
+  const c = game.settings.get(ID, "copie") ?? { etat: "inconnu", donnees: { version: 0, unites: {} } };
+  const mj = game.user.isGM ? game.settings.get(ID, "unitesMj") : null;
+  return { etat: c.etat, unites: (mj?.version ? mj.unites : c.donnees?.unites) ?? {} };
 }
 
 /** Carte vue par ce client : complète pour le MJ (si son PC l'a reçue), filtrée pour les joueurs */
@@ -53,6 +67,7 @@ export async function publierCarte(c) {
   const avant = game.settings.get(ID, "carteMj");
   if ( avant?.version === c.version && avant?.maj === c.maj ) return;
   await game.settings.set(ID, "carteMj", c);
+  if ( !(game.users.activeGM?.isSelf ?? false) ) return Hooks.callAll(CROCHET);  // un autre MJ publie pour les joueurs
   const publique = filtrer(c);
   const ancienne = game.settings.get(ID, "carteJoueurs");
   if ( JSON.stringify(ancienne) !== JSON.stringify(publique) ) await game.settings.set(ID, "carteJoueurs", publique);

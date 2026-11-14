@@ -7,7 +7,9 @@ import { PanneauUnites } from "./units-panel.mjs";
 import { versCarte, depuisCarte } from "./geo.mjs";
 import { envoyerPing } from "./ping.mjs";
 import { CalqueReperes } from "./reperes.mjs";
-import { carteCourante, CROCHET } from "./carte.mjs";
+import { CalqueUnites } from "./unites-calque.mjs";
+import { deployable } from "./deploiement.mjs";
+import { carteCourante, unitesCourantes, CROCHET, CROCHET_UNITES } from "./carte.mjs";
 import { CalqueTerritoires, MODES, modeSuivant } from "./territoires-calque.mjs";
 
 const ID = "wod-control-room";
@@ -61,7 +63,6 @@ export class Hologramme extends ApplicationV2 {
   };
 
   #mode = "tech";
-  #verticales = false;
   /** Masquage des traits cachés + fondu avec la distance (bouton avant / après) */
   #masquage = true;
   #scene = null;
@@ -83,7 +84,11 @@ export class Hologramme extends ApplicationV2 {
   #pings = [];
   /** Calque des lieux de « Paris occulte » (scripts/reperes.mjs) et crochet de mise à jour de la carte */
   #reperes = null;
+  /** Symboles des unités au-dessus des lieux */
+  #calqueUnites = null;
   #crochetCarte = null;
+  #crochetCopie = null;
+  #crochetUnites = null;
   /** Calque des territoires par arrondissement : éteint par défaut, puis simplifié ou détaillé */
   #territoires = null;
   #modeTerritoires = "off";
@@ -202,10 +207,11 @@ export class Hologramme extends ApplicationV2 {
     const div = document.createElement("div");
     div.className = "holo";
     div.innerHTML = `<div class="holo-barre">
-        <button type="button" data-holo="verticales">Arêtes verticales</button>
         <button type="button" data-holo="umbra">Vue Umbra</button>
         <button type="button" data-holo="masquage" class="actif">Masquage et fondu</button>
         <button type="button" data-holo="territoires" title="Teinte chaque arrondissement selon la faction qui le tient (cliquer pour changer de mode)"><i class="fa-solid fa-chess-board" inert></i> <span>Territoires</span></button>
+        <button type="button" data-holo="voirLieux" class="actif" title="Afficher ou masquer les repères des lieux (le palais du Conseil et la Sérénité restent visibles)"><i class="fa-solid fa-eye" inert></i> <span>Repères</span></button>
+        <button type="button" data-holo="voirUnites" class="actif" title="Afficher ou masquer les symboles des unités déployées et à résidence"><i class="fa-solid fa-chess-rook" inert></i> <span>Unités</span></button>
         <button type="button" data-holo="lieux" title="Liste des lieux de Paris occulte, avec recherche et filtres"><i class="fa-solid fa-list" inert></i> Lieux</button>
         <button type="button" data-holo="ping" title="Cliquer ensuite sur la carte (raccourci : Alt + clic ; MJ : Alt + Maj + clic pour centrer la vue de tous)"><i class="fa-solid fa-location-crosshairs" inert></i> Ping</button>
         <select data-holo="qualite" title="Densité de la ville">
@@ -267,8 +273,6 @@ export class Hologramme extends ApplicationV2 {
       if ( n !== this.#niveau ) await this.#changerNiveau(n);
       if ( valeur === "auto" ) this.#mesure = { debut: performance.now() + 500, images: 0 };
     });
-    this.element.querySelector("[data-holo=verticales]").addEventListener("click", ev => {
-      this.#verticales = !this.#verticales; ev.currentTarget.classList.toggle("actif", this.#verticales); this.#reconstruire(); });
     this.element.querySelector("[data-holo=masquage]").addEventListener("click", ev => {
       this.#masquage = !this.#masquage; ev.currentTarget.classList.toggle("actif", this.#masquage); this.#reconstruire(); });
     this.element.querySelector("[data-holo=ping]").addEventListener("click", () => this.#basculerModePing());
@@ -277,6 +281,14 @@ export class Hologramme extends ApplicationV2 {
       ev.currentTarget.classList.toggle("actif", this.#modeTerritoires !== "off");
       ev.currentTarget.querySelector("span").textContent = MODES[this.#modeTerritoires];
       this.#majTerritoires();
+    });
+    this.element.querySelector("[data-holo=voirLieux]").addEventListener("click", ev => {
+      const visibles = !this.#reperes?.basculerVisibilite();
+      ev.currentTarget.classList.toggle("actif", visibles);
+      ev.currentTarget.querySelector("i").className = `fa-solid ${visibles ? "fa-eye" : "fa-eye-slash"}`;
+    });
+    this.element.querySelector("[data-holo=voirUnites]").addEventListener("click", ev => {
+      ev.currentTarget.classList.toggle("actif", !!this.#calqueUnites?.basculerVisibilite());
     });
     this.element.querySelector("[data-holo=lieux]").addEventListener("click", ev => {
       ev.currentTarget.classList.toggle("actif", !!this.#reperes?.basculerListe()); });
@@ -360,10 +372,14 @@ export class Hologramme extends ApplicationV2 {
 
   #majUnites() {
     const zone = this.element?.querySelector(".holo-panneau"); if ( !zone ) return;
-    this.#panneau ??= new PanneauUnites(zone);
-    const c = game.settings.get(ID, "copie");
-    const unites = c.donnees?.unites ?? {};
-    this.#panneau.maj(unites);
+    if ( !this.#panneau ) {
+      this.#panneau = new PanneauUnites(zone);
+      zone.addEventListener("wod-unite-glisse", ev => this.#reperes?.activerDepot(ev.detail.actif));
+    }
+    const c = unitesCourantes();
+    const unites = c.unites;
+    this.#panneau.maj(unites, carteCourante().lieux);
+    this.#calqueUnites?.maj(unites, this.#reperes?.reperes);
     // Pied de l'habillage : état du serveur et unités
     const n = Object.keys(unites).length, ok = c.etat === "connecte";
     const etat = this.element.querySelector(".hud-serveur");
@@ -377,7 +393,7 @@ export class Hologramme extends ApplicationV2 {
     const sc = this.#scene; if ( !sc ) return;
     if ( sc.ville ) { sc.S.remove(sc.ville.groupe); sc.ville.groupe.traverse(o => { o.geometry?.dispose(); o.material?.dispose(); }); }
     sc.etiquettes.forEach(e => e.el.remove());
-    sc.ville = construireParis(THREE, this.#donnees, { mode: this.#mode, verticales: this.#verticales, masquage: this.#masquage });
+    sc.ville = construireParis(THREE, this.#donnees, { mode: this.#mode, verticales: false, masquage: this.#masquage });
     sc.S.add(sc.ville.groupe); sc.R.setClearColor(PALETTES[this.#mode].fond);
     // Fondu : les traits s'éteignent vers la couleur du fond en s'éloignant de la caméra
     sc.S.fog = this.#masquage ? new THREE.Fog(PALETTES[this.#mode].fond, 1, 10) : null;
@@ -389,6 +405,7 @@ export class Hologramme extends ApplicationV2 {
     // Les repères dépendent du relief et des bâtiments : ils sont refaits avec la ville
     this.#reperes?.construire(carteCourante(), sc.ville);
     this.#majTerritoires();
+    this.#majUnites();
   }
 
   /** (Re)construit le calque des territoires et la bulle des pastilles d'arrondissement */
@@ -396,6 +413,21 @@ export class Hologramme extends ApplicationV2 {
     const sc = this.#scene; if ( !sc || !this.#territoires ) return;
     this.#territoires.construire(carteCourante(), sc.ville, this.#modeTerritoires);
     this.#territoires.titrer(sc.etiquettes);
+  }
+
+  /** Unité déposée sur un lieu (MJ) : mission facultative, puis déploiement (statut engagé) */
+  async #deployer(lieu, id) {
+    const u = unitesCourantes().unites[id]; if ( !u || !game.user.isGM ) return;
+    const dep = deployable(u);
+    if ( !dep.ok ) return ui.notifications.warn(`${u.nom} : non déployable (${dep.raison}).`);
+    const nomLieu = carteCourante().lieux?.[lieu]?.nom ?? lieu;
+    const r = await foundry.applications.api.DialogV2.input({
+      window: { title: `Déployer ${u.nom}` },
+      content: `<p>Vers : <b>${foundry.utils.escapeHTML(nomLieu)}</b></p><label>Mission (facultatif) <input type="text" name="mission" maxlength="300" autofocus></label>`,
+      ok: { label: "Déployer", icon: "fa-solid fa-person-walking-arrow-right" }, rejectClose: false
+    });
+    if ( !r ) return;
+    await game.modules.get(ID).api.modifierUnite(id, { repere: lieu, statut: "engage", mission: String(r.mission ?? "").trim() });
   }
 
   /** Lieu choisi (étiquette ou liste) : la vue glisse vers lui */
@@ -407,7 +439,11 @@ export class Hologramme extends ApplicationV2 {
   _onClose(options) {
     super._onClose(options);
     if ( this.#crochetCarte !== null ) Hooks.off(CROCHET, this.#crochetCarte);
+    if ( this.#crochetCopie !== null ) Hooks.off("updateSetting", this.#crochetCopie);
+    if ( this.#crochetUnites !== null ) Hooks.off(CROCHET_UNITES, this.#crochetUnites);
+    this.#crochetCopie = this.#crochetUnites = null;
     this.#reperes?.detruire();
+    this.#calqueUnites?.detruire();
     this.#territoires?.detruire();
   }
 
@@ -438,9 +474,10 @@ export class Hologramme extends ApplicationV2 {
       blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
     onde.rotation.x = -Math.PI / 2; onde.position.set(-0.8, 0.05, 0); onde.renderOrder = 4; onde.visible = false; S.add(onde);
     this.#scene.onde = onde;
-    this.#reperes = new CalqueReperes(THREE, S, el, { selection: r => this.#allerVers(r) });
+    this.#reperes = new CalqueReperes(THREE, S, el, { selection: r => this.#allerVers(r), depot: (lieu, unite) => this.#deployer(lieu, unite) });
+    this.#calqueUnites = new CalqueUnites(el, { montrerGroupe: g => this.#panneau?.montrerGroupe(g) });
     this.#territoires = new CalqueTerritoires(THREE, S, el);
-    this.#crochetCarte = Hooks.on(CROCHET, () => { this.#reperes?.construire(carteCourante(), this.#scene?.ville); this.#majTerritoires(); });
+    this.#crochetCarte = Hooks.on(CROCHET, () => { this.#reperes?.construire(carteCourante(), this.#scene?.ville); this.#majTerritoires(); this.#majUnites(); });
     this.#reconstruire();
     if ( !matchMedia("(prefers-reduced-motion: reduce)").matches ) this.#scene.ville.groupe.scale.y = 0.02;  // la ville s'élèvera
     const cam = this.#cam; cam.cible = new THREE.Vector3(-0.8, 0, 0); let glisse = null;
@@ -482,6 +519,7 @@ export class Hologramme extends ApplicationV2 {
         this.#majHud(cam);
         this.#animerPings(C, w, h, v);
         if ( this.#reperes ) { this.#reperes.groupe.visible = !this.#allumage; this.#reperes.animer(C, w, h, v, cam.dist); }
+        this.#calqueUnites?.animer(C, w, h, v, !this.#allumage);
         if ( this.#territoires ) this.#territoires.groupe.visible = !this.#allumage;
         for ( const e of this.#scene.etiquettes ) {
           v.copy(e.v).project(C);
@@ -492,6 +530,7 @@ export class Hologramme extends ApplicationV2 {
       requestAnimationFrame(boucle);
     };
     requestAnimationFrame(boucle);
-    Hooks.on("updateSetting", s => { if ( s.key === `${ID}.copie` ) this.#majUnites(); });
+    this.#crochetCopie = Hooks.on("updateSetting", s => { if ( s.key === `${ID}.copie` ) this.#majUnites(); });
+    this.#crochetUnites = Hooks.on(CROCHET_UNITES, () => this.#majUnites());
   }
 }

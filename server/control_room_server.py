@@ -29,6 +29,11 @@ VERSION_SERVEUR = "0.5.0"
 PORT_DEFAUT = 30010
 # Mêmes statuts que la Réserve du Conseil de « Rolling in the Deep »
 STATUTS = ("disponible", "engage", "blesse", "perdu", "absent", "vide")
+# Déploiement (étape 4) : champs tenus par le serveur, conservés quand « Rolling in the Deep » ne les envoie pas
+LOCAUX = ("repere", "residence", "insigne")
+# Statuts qui ramènent une unité à sa résidence (une unité blessée reste sur place)
+STATUTS_RAPPEL = ("disponible", "perdu", "vide", "absent")
+INSIGNE = re.compile(r"p[1-9]|e(0[1-9]|[12]\d|30)")
 ID_UNITE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 # Seules les pages servies depuis la machine elle-même peuvent appeler l'API (Foundry sur localhost)
@@ -60,6 +65,12 @@ class Magasin:
         if not self.chemin.exists():
             self.chemin.parent.mkdir(parents=True, exist_ok=True)
             self._ecrire({"version": 0, "unites": {}})
+        else:
+            # Données d'avant les insignes (0.4.0) : attribution au démarrage
+            d = self._lire()
+            if attribuer_insignes(d["unites"]):
+                d["version"] += 1
+                self._ecrire(d)
 
     def lire(self) -> dict:
         with self.verrou:
@@ -95,16 +106,25 @@ class Magasin:
 
     def modifier(self, uid: str, champs: dict) -> dict:
         """Crée ou modifie une unité (depuis Foundry ou la page de liaison) ; renvoie l'état public."""
-        propre = valider(champs)
         uid = verifier_id(uid)
         with self.verrou:
             d = self._lire()
+            propre = valider(champs, (d.get("carte") or {}).get("lieux", {}))
+            ins = propre.get("insigne", "")
+            if ins.startswith("e") and any(k != uid and x.get("insigne") == ins for k, x in d["unites"].items()):
+                raise ValueError(f"insigne : l'écusson {ins} est déjà porté par une autre unité")
+            if propre.get("repere") and "statut" not in propre:
+                propre["statut"] = "engage"  # déployer, c'est engager (décision du MJ, 14/11/2026)
             nouvelle = uid not in d["unites"]
             u = d["unites"].get(uid, {"nom": uid, "force": 0, "statut": "disponible"})
             u.update(propre)
+            if u.get("statut") in STATUTS_RAPPEL and u.get("repere"):
+                u["repere"] = ""
+                propre["repere"] = ""
             d["unites"][uid] = u
             d["version"] += 1
             self._attente(d, uid, {"champs": dict(u) if nouvelle else propre})
+            attribuer_insignes(d["unites"])  # tenu par le serveur : pas de file d'attente
             self._ecrire(d)
         return self.public()
 
@@ -132,6 +152,15 @@ class Magasin:
                     propres.pop(c["id"], None)
                 else:
                     propres[c["id"]] = {**propres.get(c["id"], {}), **c["champs"]}
+            for uid, u in propres.items():
+                if u.get("insigne") == "":
+                    del u["insigne"]  # la page ne connaît pas l'insigne : celui du serveur est gardé
+                for cle in LOCAUX:
+                    if cle not in u and cle in d["unites"].get(uid, {}):
+                        u[cle] = d["unites"][uid][cle]
+                if u.get("statut") in STATUTS_RAPPEL and u.get("repere"):
+                    u["repere"] = ""
+            attribuer_insignes(propres)
             change = propres != d["unites"] or bool(date_jeu and date_jeu != d.get("date_jeu"))
             if change:
                 d["unites"] = propres
@@ -176,6 +205,36 @@ class Magasin:
             if len(d["en_attente"]) != avant:
                 self._ecrire(d)
             return {"en_attente": len(d["en_attente"])}
+
+
+PLANETES = ("mercure", "venus", "terre", "mars", "jupiter", "saturne", "uranus", "neptune", "pluton")
+ECUSSONS = tuple(f"e{i:02d}" for i in range(1, 31))
+
+
+def _sans_accents(t: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", t) if unicodedata.category(c) != "Mn").lower()
+
+
+def attribuer_insignes(unites: dict) -> bool:
+    """Donne un insigne à chaque unité qui n'en a pas : la planète de son nom pour un Rédempteur (p1 Mercure … p9 Pluton),
+    sinon le premier écusson libre (e01 … e30), dans l'ordre `ordre` puis nom. Modifie sur place ; True si un insigne a été posé."""
+    pris = {u.get("insigne") for u in unites.values()}
+    pose = False
+    for uid in sorted(unites, key=lambda k: (unites[k].get("ordre", 999), str(unites[k].get("nom", k)))):
+        u = unites[uid]
+        if u.get("insigne"):
+            continue
+        choix = ""
+        if _sans_accents(str(u.get("groupe", ""))).startswith("redempteur"):
+            mots = set(re.findall(r"[a-z]+", _sans_accents(str(u.get("nom", "")))))
+            choix = next((f"p{i + 1}" for i, p in enumerate(PLANETES) if p in mots), "")
+        if not choix:
+            choix = next((e for e in ECUSSONS if e not in pris), "")
+        pose |= bool(choix)
+        u["insigne"] = choix
+        pris.add(choix)
+    return pose
 
 
 def verifier_id(uid) -> str:
@@ -280,7 +339,9 @@ def valider_carte(carte) -> dict:
     return propre
 
 
-def valider(champs: dict) -> dict:
+def valider(champs: dict, lieux: dict | None = None) -> dict:
+    """Champs d'unité propres. Avec `lieux` (saisie depuis Foundry ou MCP), `repere` doit être un lieu révélé et
+    `residence` un lieu existant ; sans (synchronisation), seul le format est vérifié."""
     if not isinstance(champs, dict):
         raise ValueError("objet attendu")
     propre = {}
@@ -302,6 +363,19 @@ def valider(champs: dict) -> dict:
         elif cle == "affectation":
             if v is not None and not (isinstance(v, dict) and len(json.dumps(v)) <= 300):
                 raise ValueError("affectation : objet court ou null")
+        elif cle in ("repere", "residence"):
+            v = str(v or "")
+            if v and not ID_UNITE.fullmatch(v):
+                raise ValueError(f"{cle} : identifiant de lieu ou vide")
+            if v and lieux is not None:
+                if v not in lieux:
+                    raise ValueError(f"{cle} : lieu inconnu ({v})")
+                if cle == "repere" and not lieux[v].get("pj"):
+                    raise ValueError(f"repere : le lieu {v} n'est pas révélé aux joueurs")
+        elif cle == "insigne":
+            v = str(v or "")
+            if v and not INSIGNE.fullmatch(v):
+                raise ValueError("insigne : p1 à p9, e01 à e30, ou vide")
         elif cle == "statut":
             if v not in STATUTS:
                 raise ValueError(f"statut : une valeur parmi {', '.join(STATUTS)}")
@@ -458,7 +532,10 @@ OUTILS = [
          "statut": {"type": "string", "enum": list(STATUTS)},
          "groupe": {"type": "string", "description": "Groupe d'affichage (Rédempteurs, Alliés du Conseil…)"},
          "composition": {"type": "array", "items": {"type": "string"}, "maxItems": 12, "description": "Membres ou caractéristiques"},
-         "lieu": {"type": "string", "description": "Lieu ou affectation"}}},
+         "lieu": {"type": "string", "description": "Lieu ou affectation"},
+         "repere": {"type": "string", "description": "Déploiement : identifiant d'un lieu révélé de la carte (l'unité passe engagée), ou vide pour rappeler (avec statut disponible)"},
+         "residence": {"type": "string", "description": "Lieu de résidence par défaut (identifiant de lieu), ou vide"},
+         "insigne": {"type": "string", "description": "Insigne : p1 à p9 (planètes), e01 à e30 (écussons), vide pour en attribuer un"}}},
      "annotations": {"readOnlyHint": False, "title": "Modifier une unité"}},
     {"name": "synchroniser_reserve", "description": "Remplace les unités par la Réserve du Conseil de Rolling in the Deep (les changements faits dans Foundry et pas encore reportés restent appliqués).",
      "inputSchema": {"type": "object", "required": ["unites"], "additionalProperties": False, "properties": {
