@@ -14,7 +14,7 @@
       "sansMj": "En attente du MJ"
     },
     "Bloque": "Ce module a besoin du mini-serveur de la salle de contrôle, lancé sur l'ordinateur du MJ. Tant qu'il ne répond pas, le module est bloqué : rien n'est lu ni modifié.",
-    "Lancer": "Pour le lancer : python server/control_room_server.py http (dans le dossier du module). Voir le README du module.",
+    "Lancer": "Lance Campaign Console, ou start-server.cmd dans son dossier.",
     "Reessayer": "Réessayer",
     "AvertissementDemarrage": "Salle de contrôle : le mini-serveur ne répond pas sur le port {port}. Le module reste bloqué tant qu'il n'est pas lancé (voir le README du module).",
     "Reconnecte": "Salle de contrôle : mini-serveur connecté.",

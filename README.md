@@ -48,9 +48,7 @@ Le groupe « Salle de contrôle » de la barre d'outils, à gauche, ouvre l'holo
 Le mini-serveur garde aussi la carte de Paris tirée de l'artefact « Paris occulte » : lieux, factions, arrondissements
 et quartiers. « Paris occulte » reste la référence ; la carte envoyée remplace la précédente.
 
-- **Envoyer la carte** : exporter la base de l'artefact (un fichier JSON par document dans `lieux/`, `factions/`,
-  `arrondissements/`, `quartiers/`), puis `python tools/envoyer_carte.py <dossier exporté>`. Un artefact peut aussi
-  appeler l'outil MCP `synchroniser_carte`.
+- **Envoyer la carte** : voir la documentation de Campaign Console (le serveur reçoit la carte et la relaie à Foundry).
 - **Foundry** : le MJ actif relit la carte avec les unités. Il garde la carte complète sur son PC ; les joueurs reçoivent
   seulement les lieux révélés, avec le texte prévu pour eux.
 - **Hologramme** : chaque lieu allume le vrai bâtiment le plus proche (à la couleur de sa faction), ou une balise au sol
@@ -80,70 +78,22 @@ son ping.
 Le ping passe par le socket de Foundry (pas par le mini-serveur) : il marche même serveur éteint. Un ping par seconde
 et par joueur au plus ; un joueur ne peut pas déplacer la vue des autres.
 
-## Installer et lancer le mini-serveur
+## Le mini-serveur : Campaign Console
 
-Il faut **Python 3.10 ou plus récent** ; aucune autre installation.
-
-Le plus simple : **double-cliquer sur `start-server.cmd`** dans le dossier du module
-(`Data/modules/wod-control-room`). Une fenêtre noire s'ouvre : laisse-la ouverte pendant la partie, ferme-la
-pour arrêter le serveur.
-
-En ligne de commande, depuis le dossier du module :
-
-```
-python server/control_room_server.py http
-```
-
-Le serveur écoute sur `http://127.0.0.1:30010` (seulement cet ordinateur : il n'est jamais joignable depuis
-Internet ni depuis le réseau local). Le port se change avec `--port` ; il faut alors le reporter dans les réglages du
-module, dans Foundry.
-
-Les données sont dans `%LOCALAPPDATA%\wod-control-room\data.json` (option `--donnees` pour un autre fichier).
-
-## Brancher un artefact Claude (facultatif)
-
-Dans l'application Claude (bureau), déclarer le serveur local dans la configuration des serveurs MCP :
-
-```json
-"mcpServers": {
-  "control-room": {
-    "command": "python",
-    "args": ["<chemin du module>/server/control_room_server.py", "mcp"]
-  }
-}
-```
-
-L'artefact appelle alors `host:control-room` (outils `lister_unites` et `modifier_unite`). Seul le propriétaire de
-l'artefact, dans l'application Claude, peut joindre ce serveur.
-
-**Après une mise à jour du module, relancer complètement l'application Claude.** Elle démarre le serveur en mode MCP
-une fois pour toutes et garde l'ancien code tant qu'elle tourne. Un ancien serveur ne connaît pas les champs
-`repere`, `residence` et `insigne`, et les efface à chaque synchronisation de la Réserve.
+Le serveur (données des unités, carte de Paris, pont MCP vers un artefact Claude) ne fait plus partie de ce module : il
+est fourni par **Campaign Console**. Lance Campaign Console, ou son `start-server.cmd` dans son dossier, sur l'ordinateur
+du MJ. Il écoute sur `http://127.0.0.1:30010` (seulement cet ordinateur). Si le port change, le reporter dans les
+réglages du module, dans Foundry. Installation, données et branchement MCP : voir la documentation de Campaign Console.
 
 ### « Rolling in the Deep » (Réserve du Conseil)
 
-Ouverte dans l'application Claude du PC du MJ, la page fait le pont avec Foundry :
+Le pont entre la page « Rolling in the Deep » et Foundry est désormais géré par Campaign Console (plus de file de
+changements côté module : Foundry lit et écrit directement `GET /unites`, `GET /carte` et `PUT /unites/:id`).
 
-- elle **reporte toute seule** les changements faits dans Foundry (`recuperer_changements` toutes les 4 secondes, puis
-  `acquitter_changements`) et les note dans un journal « Reçu de Foundry » (40 derniers, un seul par numéro de
-  changement) ;
-- elle **renvoie sa Réserve** au serveur (`synchroniser_reserve`), sans jamais envoyer `repere`, `residence` ni
-  `insigne` : une valeur vieillie rappellerait l'unité ;
-- elle **affiche** sur chaque carte d'unité le lieu de déploiement et la résidence tenus par le serveur (`lister_unites`,
-  noms des lieux par `lire_carte`) ;
-- une unité engagée depuis Foundry n'a pas de date de retour automatique : elle reste engagée jusqu'à son rappel.
+## Tests
 
-L'application Claude demande de confirmer les appels qui modifient le serveur. Si l'envoi revient « annulé » (souvent
-après une relance de l'application), le bouton **Renvoyer à Foundry** de la ligne d'état relance l'envoi par un clic.
-
-## Tests du serveur
+Conversion longitude, latitude ↔ Lambert-93, calcul des territoires, déploiement :
 
 ```
-python -m unittest server/test_server.py
-```
-
-Conversion longitude, latitude ↔ Lambert-93 et calcul des territoires :
-
-```
-node --test tests/*.test.mjs
+node --test tests/
 ```
