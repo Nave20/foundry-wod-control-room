@@ -2,7 +2,7 @@
   "id": "wod-control-room",
   "title": "Control Room (requires a local mini-server)",
   "description": "<p><strong>Proof of concept.</strong> A control-room window for a World of Darkness campaign in Paris: a holographic 3D map of the real city (IGN BD TOPO buildings, relief and landmarks) and a live panel of units, kept in sync with a small server running on the GM's computer, which other tools (a Claude artifact) can also read and update.</p><p><strong>This module does not work on its own</strong>: start the mini-server, which now lives in Campaign Console (see README). Without it the module stays locked: it shows a warning and changes nothing.</p><p>Map data: IGN BD TOPO, Licence Ouverte 2.0. The interface is in French for now.</p>",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "compatibility": {
     "minimum": "14",
     "verified": "14.369"

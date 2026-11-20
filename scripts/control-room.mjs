@@ -9,7 +9,7 @@
  */
 import { Hologramme } from "./hologram.mjs";
 import { ecouterPings } from "./ping.mjs";
-import { aDiffuser } from "./diffusion.mjs";
+import { aDiffuser, imageSure } from "./diffusion.mjs";
 import { publierCarte, registerCarteSettings } from "./carte.mjs";
 import { filtrerUnites } from "./deploiement.mjs";
 
@@ -100,17 +100,35 @@ async function verifierDiffusion() {
   if ( !d.ok || !Number.isInteger(d.corps?.seq) || (typeof d.corps.quoi !== "string") ) return;
   const { action, vu } = aDiffuser(diffusionVue, d.corps);
   diffusionVue = vu;
-  if ( (action === "montrer") && estMjActif() ) {
-    game.socket.emit(CANAL, { type: "montrer", quoi: d.corps.quoi });
-    ui.notifications.info(loc("MontreAuxJoueurs"));
+  if ( (action !== "montrer") || !estMjActif() ) return;
+  if ( d.corps.quoi === "image" ) {
+    // Chemin invalide (serveur ancien ou message forgé) : rien n'est envoyé
+    if ( !imageSure(d.corps.image) ) return;
+    game.socket.emit(CANAL, { type: "montrer", quoi: "image", image: d.corps.image });
+    ouvrirImage(d.corps.image);
+    ui.notifications.info(loc("PortraitMontre"));
+    return;
   }
+  game.socket.emit(CANAL, { type: "montrer", quoi: d.corps.quoi });
+  ui.notifications.info(loc("MontreAuxJoueurs"));
 }
 
-/** Réception du message « montrer » : seul un message envoyé par un MJ ouvre l'hologramme, et pas chez un MJ */
+/** Ouvre l'image (chemin relatif à Data/, servi à la racine par Foundry) dans une fenêtre locale */
+function ouvrirImage(src) {
+  return new foundry.applications.apps.ImagePopout({ src, window: { title: loc("PortraitMontre") } }).render({ force: true });
+}
+
+/** Réception du message « montrer » : seul un message envoyé par un MJ ouvre l'hologramme (pas chez un MJ) ou l'image (chez tous) */
 function ecouterDiffusion() {
   game.socket.on(CANAL, (d, expediteur) => {
-    if ( (d?.type !== "montrer") || (d.quoi !== "carte") ) return;
+    if ( (d?.type !== "montrer") || !["carte", "image"].includes(d.quoi) ) return;
     if ( !game.users.get(expediteur)?.isGM ) return;
+    if ( d.quoi === "image" ) {
+      if ( !imageSure(d.image) ) return;
+      ouvrirImage(d.image);
+      if ( game.user.isGM ) ui.notifications.info(loc("PortraitMontre"));
+      return;
+    }
     if ( game.user.isGM ) { ui.notifications.info(loc("MontreAuxJoueurs")); return; }
     ouvrirHologramme();
   });

@@ -18,6 +18,7 @@
     "Reessayer": "Réessayer",
     "AvertissementDemarrage": "Salle de contrôle : le mini-serveur ne répond pas sur le port {port}. Le module reste bloqué tant qu'il n'est pas lancé (voir le README du module).",
     "MontreAuxJoueurs": "Hologramme ouvert chez les joueurs.",
+    "PortraitMontre": "Image montrée aux joueurs",
     "Reconnecte": "Salle de contrôle : mini-serveur connecté.",
     "Perdu": "Salle de contrôle : connexion au mini-serveur perdue. Module bloqué jusqu'à son retour.",
     "DerniereCopie": "Dernières données reçues, en lecture seule.",

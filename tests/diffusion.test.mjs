@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { aDiffuser } from "../scripts/diffusion.mjs";
+import { aDiffuser, imageSure } from "../scripts/diffusion.mjs";
 
 test("premiere_lecture_sans_effet", () => {
   assert.deepEqual(aDiffuser(null, { seq: 7, quoi: "carte" }), { action: "rien", vu: 7 });
@@ -21,4 +21,19 @@ test("serveur_redemarre", () => {
 
 test("quoi_inconnu", () => {
   assert.deepEqual(aDiffuser(1, { seq: 2, quoi: "autre" }), { action: "rien", vu: 2 });
+});
+
+test("image_montree", () => {
+  assert.deepEqual(aDiffuser(1, { seq: 2, quoi: "image" }), { action: "montrer", vu: 2 });
+});
+
+test("image_valide", () => {
+  assert.equal(imageSure("campaign-console/portraits/0123456789abcdef.jpg"), true);
+  assert.equal(imageSure("campaign-console/portraits/0123456789abcdef.webp"), true);
+  assert.equal(imageSure("../x.jpg"), false);
+  assert.equal(imageSure("https://example.com/campaign-console/portraits/0123456789abcdef.jpg"), false);
+  assert.equal(imageSure("campaign-console/portraits/0123456789abcdef.gif"), false);
+  assert.equal(imageSure("campaign-console/portraits/0123456789ABCDEF.jpg"), false);
+  assert.equal(imageSure("campaign-console/portraits/0123456789abcdef.jpg\n"), false);
+  assert.equal(imageSure(undefined), false);
 });

@@ -2,7 +2,15 @@
  * « Montrer aux joueurs » : décide, à partir du compteur `seq` du serveur, s'il faut ouvrir l'hologramme chez les joueurs.
  * Fonction pure (testée sans Foundry). `vu` : dernier `seq` lu depuis le chargement de la page, ou null.
  */
-const CONNUS = ["carte"];
+const CONNUS = ["carte", "image"];
+
+/** Même règle que le serveur : seule une copie de portrait de Campaign Console peut être montrée */
+const IMAGE_SURE = /^campaign-console\/portraits\/[0-9a-f]{16}\.(jpg|jpeg|png|webp)$/;
+
+/** @param {unknown} chemin  @returns {boolean} */
+export function imageSure(chemin) {
+  return (typeof chemin === "string") && IMAGE_SURE.test(chemin);
+}
 
 /**
  * @param {number|null} vu
