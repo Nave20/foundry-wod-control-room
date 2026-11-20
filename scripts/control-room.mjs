@@ -9,6 +9,7 @@
  */
 import { Hologramme } from "./hologram.mjs";
 import { ecouterPings } from "./ping.mjs";
+import { aDiffuser } from "./diffusion.mjs";
 import { publierCarte, registerCarteSettings } from "./carte.mjs";
 import { filtrerUnites } from "./deploiement.mjs";
 
@@ -86,6 +87,35 @@ function changerEtat(nouvel) {
   }
 }
 
+/** Dernier numéro de diffusion lu par cette page (null : pas encore lu) */
+let diffusionVue = null;
+const CANAL = `module.${ID}`;
+
+/**
+ * « Montrer aux joueurs » : tous les MJ suivent le compteur du serveur (pour ne rien rejouer si le MJ actif change),
+ * seul le MJ actif relaie le message aux joueurs. Ancien serveur (404) ou réponse illisible : sans effet.
+ */
+async function verifierDiffusion() {
+  const d = await appel("GET", "/diffusion");
+  if ( !d.ok || !Number.isInteger(d.corps?.seq) || (typeof d.corps.quoi !== "string") ) return;
+  const { action, vu } = aDiffuser(diffusionVue, d.corps);
+  diffusionVue = vu;
+  if ( (action === "montrer") && estMjActif() ) {
+    game.socket.emit(CANAL, { type: "montrer", quoi: d.corps.quoi });
+    ui.notifications.info(loc("MontreAuxJoueurs"));
+  }
+}
+
+/** Réception du message « montrer » : seul un message envoyé par un MJ ouvre l'hologramme, et pas chez un MJ */
+function ecouterDiffusion() {
+  game.socket.on(CANAL, (d, expediteur) => {
+    if ( (d?.type !== "montrer") || (d.quoi !== "carte") ) return;
+    if ( !game.users.get(expediteur)?.isGM ) return;
+    if ( game.user.isGM ) { ui.notifications.info(loc("MontreAuxJoueurs")); return; }
+    ouvrirHologramme();
+  });
+}
+
 /** Un tour de vérification : santé + données ; programme le suivant */
 async function verifier() {
   clearTimeout(minuterie);
@@ -99,6 +129,7 @@ async function verifier() {
     const c = await appel("GET", "/carte");
     if ( c.ok ) await publierCarte(c.corps);
     await publier("connecte", r.corps);
+    await verifierDiffusion();
   } else {
     changerEtat("hors_ligne");
     await publier("hors_ligne");
@@ -225,6 +256,7 @@ Hooks.once("init", () => {
 
 Hooks.once("ready", () => {
   ecouterPings();
+  ecouterDiffusion();
   game.modules.get(ID).api = { ouvrir: () => SalleDeControle.ouvrir(), hologramme: () => ouvrirHologramme(), modifierUnite: modifier };
   if ( game.user.isGM ) verifier();
 });
