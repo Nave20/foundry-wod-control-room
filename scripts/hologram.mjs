@@ -94,6 +94,8 @@ export class Hologramme extends ApplicationV2 {
   #modeTerritoires = "off";
   /** Mode « ping » : le prochain clic sur la carte envoie un ping (bouton de la barre) */
   #modePing = false;
+  /** Rotation automatique de la vue (bouton de la barre, mémorisé pour chaque joueur) */
+  #rotation = true;
 
   /**
    * Position dans la scène d'un point donné par sa longitude et sa latitude, posé sur le relief.
@@ -213,6 +215,7 @@ export class Hologramme extends ApplicationV2 {
         <button type="button" data-holo="voirLieux" class="actif" title="Afficher ou masquer les repères des lieux (le palais du Conseil et la Sérénité restent visibles)"><i class="fa-solid fa-eye" inert></i> <span>Repères</span></button>
         <button type="button" data-holo="voirUnites" class="actif" title="Afficher ou masquer les symboles des unités déployées et à résidence"><i class="fa-solid fa-chess-rook" inert></i> <span>Unités</span></button>
         <button type="button" data-holo="lieux" title="Liste des lieux de Paris occulte, avec recherche et filtres"><i class="fa-solid fa-list" inert></i> Lieux</button>
+        <button type="button" data-holo="rotation" class="actif" title="Arrêter ou relancer la rotation automatique de la vue"><i class="fa-solid fa-pause" inert></i> <span>Rotation</span></button>
         <button type="button" data-holo="ping" title="Cliquer ensuite sur la carte (raccourci : Alt + clic ; MJ : Alt + Maj + clic pour centrer la vue de tous)"><i class="fa-solid fa-location-crosshairs" inert></i> Ping</button>
         <select data-holo="qualite" title="Densité de la ville">
           <option value="auto">Qualité : automatique</option><option value="complet">Qualité : complète</option><option value="leger">Qualité : légère</option>
@@ -276,6 +279,14 @@ export class Hologramme extends ApplicationV2 {
     this.element.querySelector("[data-holo=masquage]").addEventListener("click", ev => {
       this.#masquage = !this.#masquage; ev.currentTarget.classList.toggle("actif", this.#masquage); this.#reconstruire(); });
     this.element.querySelector("[data-holo=ping]").addEventListener("click", () => this.#basculerModePing());
+    const btnRotation = this.element.querySelector("[data-holo=rotation]");
+    const majRotation = () => {
+      btnRotation.classList.toggle("actif", this.#rotation);
+      btnRotation.querySelector("i").className = `fa-solid ${this.#rotation ? "fa-pause" : "fa-play"}`;
+      btnRotation.querySelector("span").textContent = this.#rotation ? "Rotation" : "Rotation arrêtée";
+    };
+    this.#rotation = game.settings.get(ID, "rotation"); majRotation();
+    btnRotation.addEventListener("click", () => { this.#rotation = !this.#rotation; majRotation(); game.settings.set(ID, "rotation", this.#rotation); });
     this.element.querySelector("[data-holo=territoires]").addEventListener("click", ev => {
       this.#modeTerritoires = modeSuivant(this.#modeTerritoires);
       ev.currentTarget.classList.toggle("actif", this.#modeTerritoires !== "off");
@@ -501,7 +512,7 @@ export class Hologramme extends ApplicationV2 {
         R.setSize(w, h, false); R.domElement.style.width = "100%"; R.domElement.style.height = "100%"; C.aspect = w / h; C.updateProjectionMatrix();
       }
       if ( !document.hidden && !this.minimized ) {  // pause quand la fenêtre est réduite ou l'onglet caché
-        if ( !glisse ) cam.az += 0.0008;
+        if ( !glisse && this.#rotation ) cam.az += 0.0008;
         if ( cam.vers ) { cam.cible.lerp(cam.vers, 0.08); if ( cam.cible.distanceTo(cam.vers) < 0.001 ) cam.vers = null; }
         if ( cam.distVers ) { cam.dist += (cam.distVers - cam.dist) * 0.08; if ( Math.abs(cam.dist - cam.distVers) < 0.01 ) cam.distVers = null; }
         const { az, el: el2, dist, cible } = cam;

@@ -265,6 +265,8 @@ Hooks.once("init", () => {
     scope: "client", config: true, type: String, default: "auto",
     choices: { auto: "Automatique", complet: "Complète (419 000 bâtiments)", leger: "Légère (184 000 bâtiments)" }
   });
+  // Rotation automatique de l'hologramme : chaque joueur choisit pour lui
+  game.settings.register(ID, "rotation", { scope: "client", config: false, type: Boolean, default: true });
   game.settings.register(ID, "qualiteMesuree", { scope: "client", config: false, type: String, default: "" });
   game.settings.register(ID, "copie", {
     scope: "world", config: false, type: Object, default: { etat: "inconnu", donnees: { version: 0, unites: {} } },
