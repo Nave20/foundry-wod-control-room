@@ -32,14 +32,12 @@ desktop app, or by Claude through MCP. A change on one side shows on the other.
 
 <table>
   <tr>
-    <td width="33%"><img src=".github/assets/hero.webp" alt="Overview of the hologram: the whole centre of Paris in 3D"></td>
-    <td width="33%"><img src=".github/assets/close.webp" alt="Close-up on the Louvre, the Seine and the surrounding blocks"></td>
-    <td width="33%"><img src=".github/assets/umbra.webp" alt="The same map in the violet Umbra view"></td>
+    <td width="50%"><img src=".github/assets/hero.webp" alt="Overview of the hologram: the whole centre of Paris in 3D"></td>
+    <td width="50%"><img src=".github/assets/close.webp" alt="Close-up on the Louvre, the Seine and the surrounding blocks"></td>
   </tr>
   <tr>
     <td align="center"><sub>The whole city, every building</sub></td>
     <td align="center"><sub>Zoom in on any block</sub></td>
-    <td align="center"><sub>Umbra view, for the spirit world</sub></td>
   </tr>
 </table>
 
