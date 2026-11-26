@@ -44,15 +44,19 @@ desktop app, or by Claude through MCP. A change on one side shows on the other.
 
 ```mermaid
 flowchart LR
-    S[("Mini-server<br/>Campaign Console")]
-    F["Foundry VTT<br/>Control Room module"]
-    A["Campaign Console<br/>desktop app"]
-    C["Claude<br/>through MCP"]
-    P(["Players"])
-    F <-- "HTTP, every 3 s" --> S
-    A <--> S
-    C <--> S
-    F -- "Foundry socket" --> P
+    P(["Players"]) --- F["Foundry VTT<br/>Control Room"]
+    F <-->|every 3 s| S[("Mini-server<br/>on the GM's PC")]
+    S <--> A["Campaign Console<br/>desktop app"]
+    S <--> C["Claude<br/>through MCP"]
+    classDef sky fill:#12141a,stroke:#3d9bff,color:#f3f4f6,stroke-width:2px
+    classDef amber fill:#12141a,stroke:#ffb21e,color:#f3f4f6,stroke-width:2px
+    classDef coral fill:#12141a,stroke:#ff5f45,color:#f3f4f6,stroke-width:2px
+    classDef teal fill:#12141a,stroke:#14c8a8,color:#f3f4f6,stroke-width:2px
+    class F sky
+    class S amber
+    class A coral
+    class C coral
+    class P teal
 ```
 
 The mini-server is the single source of truth: it keeps units, the map and the campaign in one file on the GM's
