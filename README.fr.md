@@ -85,5 +85,5 @@ changements côté module : Foundry lit et écrit directement `GET /unites`, `GE
 Conversion longitude, latitude ↔ Lambert-93, calcul des territoires, déploiement :
 
 ```
-node --test tests/
+node --test tests/*.test.mjs
 ```
