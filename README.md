@@ -14,6 +14,10 @@
   <b>English</b> · <a href="README.fr.md">Français</a>
 </p>
 
+<p align="center">
+  <img src=".github/assets/hologram.webp" alt="The hologram slowly turning above the 3D buildings of central Paris and the Seine" width="100%">
+</p>
+
 **Turn the real Paris into your campaign board.** Control Room is a Foundry VTT module for a World of Darkness
 chronicle set in Paris. It opens a holographic 3D map of the city, with every building, the relief, the Seine and the
 20 arrondissements, and a live panel of the factions' units. Drag a unit onto a place and your players see it move.
@@ -25,6 +29,19 @@ desktop app, or by Claude through MCP. A change on one side shows on the other.
 > **This module needs a small server running on the GM's computer**, provided by
 > [Campaign Console](https://github.com/Nave20/campaign-console). Without it, the module stays locked: it shows a
 > warning and changes nothing. The interface is in French for now.
+
+<table>
+  <tr>
+    <td width="33%"><img src=".github/assets/hero.webp" alt="Overview of the hologram: the whole centre of Paris in 3D"></td>
+    <td width="33%"><img src=".github/assets/close.webp" alt="Close-up on the Louvre, the Seine and the surrounding blocks"></td>
+    <td width="33%"><img src=".github/assets/umbra.webp" alt="The same map in the violet Umbra view"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>The whole city, every building</sub></td>
+    <td align="center"><sub>Zoom in on any block</sub></td>
+    <td align="center"><sub>Umbra view, for the spirit world</sub></td>
+  </tr>
+</table>
 
 ## Features
 
