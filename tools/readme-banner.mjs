@@ -93,7 +93,6 @@ function banner() {
   <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1.1" fill="#ffffff" opacity=".07"/></pattern>
   <linearGradient id="fade" x1="0" x2="1"><stop offset="0" stop-color="${C.canvas}"/><stop offset=".5" stop-color="${C.canvas}" stop-opacity=".88"/><stop offset="1" stop-color="${C.canvas}" stop-opacity="0"/></linearGradient>
   <linearGradient id="name" x1="0" x2="1"><stop offset="0" stop-color="${C.sky}"/><stop offset="1" stop-color="${C.teal}"/></linearGradient>
-  <linearGradient id="scan" x1="0" x2="1"><stop offset="0" stop-color="${C.sky}" stop-opacity="0"/><stop offset=".5" stop-color="${C.sky}" stop-opacity=".35"/><stop offset="1" stop-color="${C.sky}" stop-opacity="0"/></linearGradient>
   ${clips}
 </defs>
 <g clip-path="url(#frame)">
@@ -104,7 +103,6 @@ function banner() {
   </g>
   <g>${skyline()}</g>
   <path d="${seine}" fill="none" stroke="${C.teal}" stroke-width="3" stroke-opacity=".7" stroke-linecap="round"/>
-  <rect x="-80" y="0" width="80" height="${H}" fill="url(#scan)"><animate attributeName="x" values="560;1240" dur="7s" repeatCount="indefinite"/></rect>
   <rect width="${W}" height="${H}" fill="url(#dots)"/>
   <rect width="${W * 0.72}" height="${H}" fill="url(#fade)"/>
   ${mono(x0, 80, '~/foundry $ load paris --3d', 18, C.muted)}
