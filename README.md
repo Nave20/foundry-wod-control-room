@@ -110,9 +110,14 @@ Pings go through Foundry's socket, so they work even when the server is off.
 ## Development
 
 ```bash
-node --test tests/                                          # Lambert-93 conversion, territories, deployment
-python tools/extract_paris.py <paris.gpkg> data/paris.bin   # rebuild the map from the IGN GeoPackage (dept. 75)
-node tools/readme-banner.mjs                                # regenerate the README banner
+# tests: Lambert-93 conversion, territories, deployment
+node --test tests/
+
+# rebuild the 3D map from the IGN GeoPackage for Paris (dept. 75)
+python tools/extract_paris.py <paris.gpkg> data/paris.bin
+
+# regenerate the README banner
+node tools/readme-banner.mjs
 ```
 
 ## Credits
